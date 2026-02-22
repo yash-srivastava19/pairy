@@ -1,4 +1,4 @@
--- pairy/client.lua — Claude API client (streaming SSE via curl + vim.system)
+-- pairy/client.lua — Gemini API client (streaming SSE via curl + vim.system)
 
 local util = require("pairy.util")
 
@@ -16,7 +16,16 @@ Rules:
 - Never repeat the user's question back to them.
 - Write as if your response will appear as inline comment lines in the code file. Keep each sentence under ~80 characters.]]
 
--- Build the messages API request body as a Lua table
+-- Gemini streaming endpoint (key in URL, no auth header needed)
+local function build_url(cfg)
+  local model = cfg.model or "gemini-2.0-flash"
+  return string.format(
+    "https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s",
+    model, cfg.api_key
+  )
+end
+
+-- Gemini request body format
 local function build_request_body(pair_comment, cfg)
   local content = table.concat({
     pair_comment.context,
@@ -25,68 +34,69 @@ local function build_request_body(pair_comment, cfg)
   }, "\n")
 
   return {
-    model      = cfg.model,
-    max_tokens = cfg.max_tokens,
-    stream     = true,
-    system     = SYSTEM_PROMPT,
-    messages   = {
-      { role = "user", content = content },
+    system_instruction = {
+      parts = { { text = SYSTEM_PROMPT } },
+    },
+    contents = {
+      { role = "user", parts = { { text = content } } },
+    },
+    generationConfig = {
+      maxOutputTokens = cfg.max_tokens or 512,
     },
   }
 end
 
--- Parse a single SSE line.
--- Returns: delta_text string, "__DONE__", or nil (ignore).
+-- Parse a single SSE line from Gemini's stream.
+-- Returns: delta_text string, "__ERROR__:msg", or nil (ignore).
+-- Note: Gemini does NOT send [DONE] — the stream ends when curl exits.
 local function parse_sse_line(line)
   line = util.trim(line)
   if line == "" then return nil end
   if vim.startswith(line, "event:") then return nil end
   if vim.startswith(line, ":") then return nil end  -- SSE comment
 
-  -- Strip "data: " prefix
   if not vim.startswith(line, "data:") then return nil end
-  line = util.trim(line:sub(6))  -- remove "data:" and trim
-
-  if line == "[DONE]" then return "__DONE__" end
+  line = util.trim(line:sub(6))  -- strip "data:" prefix
 
   local ok, decoded = pcall(vim.json.decode, line)
   if not ok then return nil end
 
-  -- Anthropic streaming: content_block_delta with text_delta
-  if decoded.type == "content_block_delta"
-    and decoded.delta
-    and decoded.delta.type == "text_delta"
-    and type(decoded.delta.text) == "string"
-  then
-    return decoded.delta.text
+  -- Gemini error response
+  if decoded.error then
+    return "__ERROR__:" .. (decoded.error.message or "unknown API error")
   end
 
-  -- Check for error in response (non-streaming error, arrives as one JSON blob)
-  if decoded.type == "error" and decoded.error then
-    return "__ERROR__:" .. (decoded.error.message or "unknown API error")
+  -- Gemini text delta: candidates[1].content.parts[1].text
+  if decoded.candidates
+    and decoded.candidates[1]
+    and decoded.candidates[1].content
+    and decoded.candidates[1].content.parts
+    and decoded.candidates[1].content.parts[1]
+    and type(decoded.candidates[1].content.parts[1].text) == "string"
+  then
+    return decoded.candidates[1].content.parts[1].text
   end
 
   return nil
 end
 
--- Check if collected output looks like an API error JSON body
--- (non-streaming error: entire response is one JSON object)
+-- Check if collected output looks like a top-level API error JSON body
 local function check_for_api_error(text)
   local trimmed = util.trim(text)
   if not vim.startswith(trimmed, "{") then return nil end
   local ok, decoded = pcall(vim.json.decode, trimmed)
   if not ok then return nil end
   if decoded.error then
-    return decoded.error.message or ("API error type: " .. (decoded.error.type or "unknown"))
+    return decoded.error.message or ("API error: " .. (decoded.error.status or "unknown"))
   end
   return nil
 end
 
--- Send a pair comment to Claude.
--- pair_comment: PairComment table from detector
--- cfg: config table from config.get()
--- callbacks: { on_token(text), on_done(full_text), on_error(msg) }
--- Returns: the vim.system job object (for cancellation)
+-- Send a pair comment to Gemini.
+-- pair_comment : PairComment table from detector
+-- cfg          : config table from config.get()
+-- callbacks    : { on_token(text), on_done(full_text), on_error(msg) }
+-- Returns      : vim.system job object (for cancellation)
 function M.send(pair_comment, cfg, callbacks)
   local api_key = cfg.api_key
   if not api_key or api_key == "" then
@@ -94,53 +104,37 @@ function M.send(pair_comment, cfg, callbacks)
     return nil
   end
 
-  -- Write request body to temp file (avoids shell quoting issues)
-  local body = build_request_body(pair_comment, cfg)
+  local body      = build_request_body(pair_comment, cfg)
   local body_json = vim.json.encode(body)
-  local tmp_path = util.tmp_file(body_json)
+  local tmp_path  = util.tmp_file(body_json)
   if not tmp_path then
     callbacks.on_error("Failed to create temp file for request body")
     return nil
   end
 
-  -- State for chunk processing
-  local line_buf = { partial = "" }
-  local acc      = { text = "", done = false, error = nil }
+  local line_buf      = { partial = "" }
+  local acc           = { text = "", done = false }
   local stderr_chunks = {}
 
-  -- Process a complete SSE line
   local function process_line(line)
     if acc.done then return end
-
     local result = parse_sse_line(line)
-    if result == "__DONE__" then
+    if not result then return end
+
+    if vim.startswith(result, "__ERROR__:") then
       acc.done = true
-      vim.schedule(function()
-        callbacks.on_done(acc.text)
-      end)
-    elseif result and vim.startswith(result, "__ERROR__:") then
-      acc.done = true
-      local msg = result:sub(10)
-      vim.schedule(function()
-        callbacks.on_error(msg)
-      end)
-    elseif result then
+      vim.schedule(function() callbacks.on_error(result:sub(10)) end)
+    else
       acc.text = acc.text .. result
-      local token = result
-      vim.schedule(function()
-        callbacks.on_token(token)
-      end)
+      vim.schedule(function() callbacks.on_token(result) end)
     end
   end
 
-  -- Reconstruct lines from arbitrary stdout chunks
   local function handle_chunk(chunk)
     if not chunk then return end
-    -- Append to partial buffer, split on newlines
     line_buf.partial = line_buf.partial .. chunk
     local parts = vim.split(line_buf.partial, "\n", { plain = true })
-    -- Last element is the incomplete tail
-    line_buf.partial = table.remove(parts)
+    line_buf.partial = table.remove(parts)  -- keep incomplete tail
     for _, line in ipairs(parts) do
       process_line(line)
     end
@@ -151,17 +145,14 @@ function M.send(pair_comment, cfg, callbacks)
       "curl",
       "--silent",
       "--no-buffer",
-      "--http1.1",         -- avoid h2 framing complexity with SSE
+      "--http1.1",
       "-X", "POST",
-      "-H", "x-api-key: " .. api_key,
-      "-H", "anthropic-version: " .. cfg.api_version,
       "-H", "content-type: application/json",
-      "-H", "accept: text/event-stream",
       "--data-binary", "@" .. tmp_path,
-      cfg.api_url,
+      build_url(cfg),
     },
     {
-      text   = false,       -- binary mode; we handle newlines ourselves
+      text   = false,
       stdout = function(err, chunk)
         if err then return end
         handle_chunk(chunk)
@@ -170,25 +161,22 @@ function M.send(pair_comment, cfg, callbacks)
         if chunk then table.insert(stderr_chunks, chunk) end
       end,
     },
-    function(result)         -- on_exit
+    function(result)  -- on_exit
       os.remove(tmp_path)
 
-      if acc.done then return end  -- already handled via SSE
+      if acc.done then return end
 
-      -- Flush any remaining partial line (non-streaming error response lands here)
+      -- Flush any remaining partial line
       if line_buf.partial ~= "" then
-        -- Check if it's a JSON error body
         local api_err = check_for_api_error(line_buf.partial)
         if api_err then
           vim.schedule(function() callbacks.on_error(api_err) end)
           return
         end
-        -- Otherwise try to process it as a data line
         process_line(line_buf.partial)
         if acc.done then return end
       end
 
-      -- curl non-zero exit
       if result.code ~= 0 then
         local stderr_str = table.concat(stderr_chunks, "")
         local msg = "curl error (code " .. result.code .. ")"
@@ -196,13 +184,11 @@ function M.send(pair_comment, cfg, callbacks)
           msg = msg .. ": " .. util.trim(stderr_str):sub(1, 120)
         end
         vim.schedule(function() callbacks.on_error(msg) end)
-      elseif not acc.done then
-        -- Stream ended without [DONE] — treat accumulated text as final
-        if acc.text ~= "" then
-          vim.schedule(function() callbacks.on_done(acc.text) end)
-        else
-          vim.schedule(function() callbacks.on_error("Empty response from API") end)
-        end
+      elseif acc.text ~= "" then
+        -- Gemini: no [DONE] marker, stream ends when curl exits cleanly
+        vim.schedule(function() callbacks.on_done(acc.text) end)
+      else
+        vim.schedule(function() callbacks.on_error("Empty response from API") end)
       end
     end
   )

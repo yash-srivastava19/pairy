@@ -5,12 +5,9 @@ local util = require("pairy.util")
 local M = {}
 
 M.defaults = {
-  model           = "claude-sonnet-4-6",
-  context_lines   = 20,
-  max_tokens      = 512,
-  comment_trigger = "pair:",
-  api_url         = "https://api.anthropic.com/v1/messages",
-  api_version     = "2023-06-01",
+  model         = "gemini-2.5-flash",
+  context_lines = 20,
+  max_tokens    = 8192,
 }
 
 M._config = nil   -- cached after first load

@@ -1,0 +1,6 @@
+# Never commit secrets or local config
+*.env
+.env*
+config.json
+*_secret*
+*_key*

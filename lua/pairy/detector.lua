@@ -25,11 +25,6 @@ function M.extract_question(line_text)
   return nil
 end
 
--- Check if a line is a pair: comment
-function M.is_pair_line(line_text)
-  return M.extract_question(line_text) ~= nil
-end
-
 -- Build a formatted context block to send to Claude.
 -- Returns a multi-line string with: header, code fence, numbered lines,
 -- with the pair: line marked with '>'.
@@ -49,7 +44,7 @@ function M.build_context(buf, line_nr_0, context_lines)
   for i, line in ipairs(lines) do
     local abs_line = start_0 + i  -- 1-indexed display number
     local marker = (start_0 + i - 1 == line_nr_0) and ">" or " "
-    table.insert(numbered, string.format("%s %*d: %s", marker, width, abs_line, line))
+    table.insert(numbered, string.format("%s %" .. width .. "d: %s", marker, abs_line, line))
   end
 
   local header = string.format("File: %s (%s)\nLines %d-%d:\n",
