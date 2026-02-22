@@ -1,93 +1,126 @@
 # pairy
 
-Pair program with Claude inside Neovim. Write a `pair:` comment, hit a keymap, watch Claude's response stream in as inline virtual text — right below the comment, inside your code, no chat interface.
+Pair programming with AI, without leaving your editor.
+
+Instead of switching to a chat interface, you write a `pair:` comment in your code. Hit a keymap. The response streams in as inline virtual text right below — visible in context, never saved to the file.
 
 ```ruby
 def insert(node, val)
   # pair: should I handle the nil root case here or in the caller?
-  # ⬡ Handle it here — the function owns its invariants.
-  # ⬡ Callers shouldn't need to know internal structure. Guard at top.
+  ⬡ Handle it here — the function owns its invariants.
+  ⬡ Callers shouldn't need to know your internal structure.
   if node.val > val
 ```
 
-The `⬡` lines are virtual text — they don't exist in your file, don't affect git diffs, and stream in token by token.
+Works in any language. Responses are scoped to the code around the comment — the AI sees what you see.
 
 ---
 
-## Setup
+## Requirements
 
-### 1. Add your API key
+- Neovim 0.10+
+- [lazy.nvim](https://github.com/folke/lazy.nvim)
+- `curl` (already on most systems)
+- A [Google AI Studio API key](https://aistudio.google.com/app/apikey) — free tier is sufficient
 
-Edit `~/.config/pairy/config.json`:
+---
+
+## Installation
+
+**1. Clone the repo**
+
+```sh
+git clone https://github.com/yash-srivastava19/pairy ~/.local/share/pairy
+```
+
+**2. Create your config**
+
+```sh
+mkdir -p ~/.config/pairy
+```
+
+`~/.config/pairy/config.json`:
 
 ```json
 {
-  "api_key": "sk-ant-api03-...",
-  "model": "claude-sonnet-4-6",
+  "api_key": "YOUR_GEMINI_API_KEY",
+  "model": "gemini-2.5-flash",
   "context_lines": 20,
-  "max_tokens": 512
+  "max_tokens": 8192
 }
 ```
 
-Get a key at [console.anthropic.com](https://console.anthropic.com).
+**3. Add the plugin spec**
 
-### 2. Add to LazyVim
+In your lazy.nvim plugins directory (e.g. `~/.config/nvim/lua/plugins/pairy.lua`):
 
-The spec is already at `~/.config/nvim/lua/plugins/pairy.lua`. Restart Neovim and lazy.nvim will pick it up automatically.
+```lua
+return {
+  {
+    dir    = vim.fn.expand("~/.local/share/pairy"),
+    name   = "pairy",
+    lazy   = false,
+    config = function()
+      local pairy = require("pairy")
+      pairy.setup({})
+
+      local map = vim.keymap.set
+      map("n", "<leader>ais", pairy.send,       { desc = "Pairy: Send comment at cursor" })
+      map("n", "<leader>aic", pairy.clear,      { desc = "Pairy: Clear all responses" })
+      map("n", "<leader>aix", pairy.clear_line, { desc = "Pairy: Clear response at cursor" })
+      map("n", "<leader>aia", pairy.send_all,   { desc = "Pairy: Send all pair: comments" })
+      map("n", "<leader>aiK", pairy.cancel,     { desc = "Pairy: Cancel request" })
+    end,
+  },
+}
+```
+
+**4. Restart Neovim**
 
 ---
 
 ## Usage
 
-Write a `pair:` comment in any language:
+Write a `pair:` comment anywhere in your code. The syntax works in any language:
 
 ```lua
--- pair: is this the right data structure for this use case?
-```
-```ruby
-# pair: should I extract this into its own method?
+-- pair: is a hash map the right structure here?
 ```
 ```python
-# pair: is there a more pythonic way to do this?
+# pair: should this be a class method or a standalone function?
 ```
 ```javascript
-// pair: should I use async/await or a promise chain here?
+// pair: is there a reason to prefer reduce over a plain loop?
 ```
+```rust
+// pair: when should I use Arc vs Rc here?
+```
+
+Place your cursor on or near the comment and press `<leader>ais`. The response streams in word by word below the line. It never touches your file.
 
 ### Keymaps
 
 | Key | Action |
 |---|---|
-| `<leader>ais` | Send `pair:` comment at/near cursor to Claude |
-| `<leader>aic` | Clear all responses in current buffer |
-| `<leader>aix` | Clear response at cursor line |
+| `<leader>ais` | Send `pair:` comment at/near cursor |
 | `<leader>aia` | Send all `pair:` comments in buffer |
+| `<leader>aic` | Clear all responses in buffer |
+| `<leader>aix` | Clear response at cursor |
 | `<leader>aiK` | Cancel in-flight request |
-| `<leader>air` | Reload config from disk |
 
 ### Commands
 
-`:PairySend`, `:PairyClear`, `:PairyClearLine`, `:PairyAll`, `:PairyCancel`, `:PairyReload`
+`:PairySend` `:PairyAll` `:PairyClear` `:PairyClearLine` `:PairyCancel` `:PairyReload`
 
 ---
 
-## Config options
+## Config reference
 
 | Key | Default | Description |
 |---|---|---|
-| `api_key` | — | **Required.** Anthropic API key |
-| `model` | `claude-sonnet-4-6` | Model to use |
+| `api_key` | — | **Required.** Google AI Studio API key |
+| `model` | `gemini-2.5-flash` | Any Gemini model ID |
 | `context_lines` | `20` | Lines of code above/below the comment sent as context |
-| `max_tokens` | `512` | Max response length (keep low — responses are inline comments) |
+| `max_tokens` | `8192` | Max response length |
 
----
-
-## How it works
-
-1. You write a `pair:` comment explaining your thought or question
-2. Press `<leader>ais` — pairy finds the comment, extracts surrounding code context
-3. The context + question are sent to Claude via the Anthropic API (streaming)
-4. Claude's response streams in as inline virtual text below the comment
-5. The virtual text lives until you clear it — it's never written to the file
-
-Claude is given a system prompt that makes it respond as a concise pair programmer: direct opinions, no padding, code-aware, comment-friendly formatting.
+To reload config without restarting: `:PairyReload`
