@@ -8,6 +8,7 @@ M.defaults = {
   model         = "gemini-2.5-flash",
   context_lines = 20,
   max_tokens    = 8192,
+  sessions_dir  = "~/.local/share/pairy/sessions",
 }
 
 M._config = nil   -- cached after first load

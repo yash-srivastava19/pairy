@@ -257,6 +257,13 @@ function M.clear_all(buf)
   queues[buf] = nil
 end
 
+-- Return a snapshot of all saved responses for a buffer: { [line_nr] = text }
+function M.get_responses(buf)
+  local st = state[buf]
+  if not st then return {} end
+  return vim.deepcopy(st.responses)
+end
+
 function M.set_active_job(buf, job)
   get_state(buf).active_job = job
 end

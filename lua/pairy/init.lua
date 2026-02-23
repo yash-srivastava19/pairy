@@ -20,11 +20,12 @@ function M.setup(opts)
     callback = renderer.setup_highlights,
   })
 
-  vim.api.nvim_create_user_command("PairySend",      M.send,       { desc = "Send pair: comment at cursor to AI" })
-  vim.api.nvim_create_user_command("PairyClear",     M.clear,      { desc = "Clear all pairy responses in buffer" })
-  vim.api.nvim_create_user_command("PairyClearLine", M.clear_line, { desc = "Clear pairy response at cursor line" })
-  vim.api.nvim_create_user_command("PairyAll",       M.send_all,   { desc = "Send all pair: comments in buffer" })
-  vim.api.nvim_create_user_command("PairyCancel",    M.cancel,     { desc = "Cancel in-flight pairy request" })
+  vim.api.nvim_create_user_command("PairySend",      M.send,         { desc = "Send pair: comment at cursor to AI" })
+  vim.api.nvim_create_user_command("PairyClear",     M.clear,        { desc = "Clear all pairy responses in buffer" })
+  vim.api.nvim_create_user_command("PairyClearLine", M.clear_line,   { desc = "Clear pairy response at cursor line" })
+  vim.api.nvim_create_user_command("PairyAll",       M.send_all,     { desc = "Send all pair: comments in buffer" })
+  vim.api.nvim_create_user_command("PairyCancel",    M.cancel,       { desc = "Cancel in-flight pairy request" })
+  vim.api.nvim_create_user_command("PairySave",      M.save_session, { desc = "Save pairy session to a markdown file" })
   vim.api.nvim_create_user_command("PairyReload", function()
     config.reload()
     util.notify("Config reloaded.")
@@ -114,6 +115,76 @@ end
 
 function M.cancel()
   renderer.cancel_active(vim.api.nvim_get_current_buf())
+end
+
+-- Save all answered pair: comments in the buffer to a timestamped markdown file.
+-- The file is a readable log of the session: question, code context, and response.
+function M.save_session()
+  local cfg       = config.get()
+  local buf       = vim.api.nvim_get_current_buf()
+  local comments  = detector.find_all(buf, cfg)
+  local responses = renderer.get_responses(buf)
+
+  -- Only save comments that have a response
+  local answered = {}
+  for _, c in ipairs(comments) do
+    if responses[c.line_nr] and responses[c.line_nr] ~= "" then
+      table.insert(answered, c)
+    end
+  end
+
+  if #answered == 0 then
+    util.notify_warn("Nothing to save — no answered pair: comments in buffer.")
+    return
+  end
+
+  local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+  if filename == "" then filename = "unnamed" end
+
+  -- Build markdown content
+  local lines = {
+    "# Pairy Session",
+    "",
+    "**File:** " .. filename,
+    "**Date:** " .. os.date("%Y-%m-%d %H:%M"),
+    "",
+    "---",
+    "",
+  }
+
+  for _, c in ipairs(answered) do
+    table.insert(lines, "### " .. c.question)
+    table.insert(lines, "")
+    table.insert(lines, c.context)
+    table.insert(lines, "")
+    table.insert(lines, "**Response:**")
+    table.insert(lines, "")
+    table.insert(lines, responses[c.line_nr])
+    table.insert(lines, "")
+    table.insert(lines, "---")
+    table.insert(lines, "")
+  end
+
+  -- Write to sessions directory
+  local sessions_dir = vim.fn.expand(cfg.sessions_dir)
+  vim.fn.mkdir(sessions_dir, "p")
+
+  local safe_name    = filename:gsub("[^%w%-_.]", "_")
+  local timestamp    = os.date("%Y%m%d_%H%M%S")
+  local session_path = sessions_dir .. "/" .. timestamp .. "_" .. safe_name .. ".md"
+
+  local f = io.open(session_path, "w")
+  if not f then
+    util.notify_err("Could not write to " .. session_path)
+    return
+  end
+  f:write(table.concat(lines, "\n"))
+  f:close()
+
+  util.notify(string.format("Session saved (%d Q&A) → %s", #answered, session_path))
+
+  -- Open the session file in a vertical split so the user can inspect/edit it
+  vim.cmd("vsplit " .. vim.fn.fnameescape(session_path))
 end
 
 return M

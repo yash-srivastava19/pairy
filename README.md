@@ -2,7 +2,9 @@
 
 Pair programming with AI, without leaving your editor.
 
-Instead of switching to a chat interface, you write a `pair:` comment in your code. Hit a keymap. The response streams in as inline virtual text right below — visible in context, never saved to the file.
+Instead of switching to a chat interface, you write a `pair:` comment in your code. Hit a keymap. The response streams in as inline virtual text right below — visible in context, never written to the file.
+
+The AI doesn't just answer. It pushes back: surfaces assumptions you haven't stated, asks one probing question when your reasoning has a gap, and redirects you when you're off track. The goal is to make you think more clearly, not to think for you.
 
 ```ruby
 def insert(node, val)
@@ -104,13 +106,20 @@ Place your cursor on or near the comment and press `<leader>ais`. The response s
 |---|---|
 | `<leader>ais` | Send `pair:` comment at/near cursor |
 | `<leader>aia` | Send all `pair:` comments in buffer |
+| `<leader>aiw` | Save session to a markdown file |
 | `<leader>aic` | Clear all responses in buffer |
 | `<leader>aix` | Clear response at cursor |
 | `<leader>aiK` | Cancel in-flight request |
 
 ### Commands
 
-`:PairySend` `:PairyAll` `:PairyClear` `:PairyClearLine` `:PairyCancel` `:PairyReload`
+`:PairySend` `:PairyAll` `:PairySave` `:PairyClear` `:PairyClearLine` `:PairyCancel` `:PairyReload`
+
+### Saving a session
+
+`:PairySave` (or `<leader>aiw`) collects every answered `pair:` comment in the buffer — question, code context, and response — and writes it to a timestamped markdown file in `~/.local/share/pairy/sessions/`. The file opens in a vertical split immediately so you can read, edit, or save it elsewhere.
+
+This is useful for revisiting your own reasoning later, or as a record during pair programming interviews.
 
 ---
 
@@ -122,5 +131,6 @@ Place your cursor on or near the comment and press `<leader>ais`. The response s
 | `model` | `gemini-2.5-flash` | Any Gemini model ID |
 | `context_lines` | `20` | Lines of code above/below the comment sent as context |
 | `max_tokens` | `8192` | Max response length |
+| `sessions_dir` | `~/.local/share/pairy/sessions` | Where session files are saved |
 
 To reload config without restarting: `:PairyReload`
