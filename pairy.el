@@ -165,10 +165,17 @@ Returns (LINE-NR QUESTION CONTEXT) or nil."
 ;; Overlays with `after-string' starting with \n render below the line —
 ;; the Emacs equivalent of Neovim's virt_lines.
 
-(defvar-local pairy--overlays  (make-hash-table :test 'eql)
-  "Hash table: line-nr → overlay.")
-(defvar-local pairy--responses (make-hash-table :test 'eql)
-  "Hash table: line-nr → accumulated response string.")
+(defvar-local pairy--overlays  nil
+  "Hash table: line-nr → overlay. Initialized lazily per buffer.")
+(defvar-local pairy--responses nil
+  "Hash table: line-nr → accumulated response string. Initialized lazily per buffer.")
+
+(defun pairy--ensure-state ()
+  "Initialize buffer-local hash tables if not yet done for this buffer."
+  (unless pairy--overlays
+    (setq pairy--overlays  (make-hash-table :test 'eql)))
+  (unless pairy--responses
+    (setq pairy--responses (make-hash-table :test 'eql))))
 
 (defun pairy--line-end-pos (line-nr)
   "Buffer position at end of LINE-NR (1-indexed)."
@@ -186,6 +193,7 @@ Returns (LINE-NR QUESTION CONTEXT) or nil."
 
 (defun pairy--set-overlay (line-nr text face)
   "Create or update the overlay for LINE-NR, showing TEXT with FACE."
+  (pairy--ensure-state)
   (let* ((pos     (pairy--line-end-pos line-nr))
          (indent  (pairy--get-indent line-nr))
          (display (concat "\n" indent
@@ -200,6 +208,7 @@ Returns (LINE-NR QUESTION CONTEXT) or nil."
 
 (defun pairy--show-pending (line-nr &optional phase)
   "Show pending indicator for LINE-NR."
+  (pairy--ensure-state)
   (pairy--set-overlay line-nr (or phase "thinking...") 'pairy-pending-face)
   (puthash line-nr "" pairy--responses))
 
@@ -228,8 +237,8 @@ Returns (LINE-NR QUESTION CONTEXT) or nil."
 (defun pairy--clear-all ()
   "Remove all pairy overlays in current buffer."
   (remove-overlays (point-min) (point-max) 'pairy t)
-  (clrhash pairy--overlays)
-  (clrhash pairy--responses))
+  (when pairy--overlays  (clrhash pairy--overlays))
+  (when pairy--responses (clrhash pairy--responses)))
 
 ;; ─── API client ───────────────────────────────────────────────────────────
 ;; Same curl command and SSE parsing as client.lua.
