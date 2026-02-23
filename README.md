@@ -100,26 +100,43 @@ Write a `pair:` comment anywhere in your code. The syntax works in any language:
 
 Place your cursor on or near the comment and press `<leader>ais`. The response streams in word by word below the line. It never touches your file.
 
+**Visual mode:** select any block of code, press `<leader>ais`, type your question at the prompt. No comment needed — useful for quick questions or when working with logs and data you've pasted in.
+
 ### Keymaps
 
-| Key | Action |
-|---|---|
-| `<leader>ais` | Send `pair:` comment at/near cursor |
-| `<leader>aia` | Send all `pair:` comments in buffer |
-| `<leader>aiw` | Save session to a markdown file |
-| `<leader>aic` | Clear all responses in buffer |
-| `<leader>aix` | Clear response at cursor |
-| `<leader>aiK` | Cancel in-flight request |
+| Key | Mode | Action |
+|---|---|---|
+| `<leader>ais` | normal | Send `pair:` comment at/near cursor |
+| `<leader>ais` | visual | Ask a question about the selection |
+| `<leader>aia` | normal | Send all `pair:` comments in buffer |
+| `<leader>aiw` | normal | Save session to a markdown file |
+| `<leader>aic` | normal | Clear all responses in buffer |
+| `<leader>aix` | normal | Clear response at cursor |
+| `<leader>aiK` | normal | Cancel in-flight request |
 
 ### Commands
 
 `:PairySend` `:PairyAll` `:PairySave` `:PairyClear` `:PairyClearLine` `:PairyCancel` `:PairyReload`
 
+### Conversation threading
+
+Each `pair:` send automatically includes your prior answered Q&As from the same buffer as conversation history. The AI can reference what was discussed earlier — useful when debugging step by step or refining an approach across multiple comments. Capped at `max_history` (default 5) exchanges.
+
+### Project context (PAIRY.md)
+
+Create a `PAIRY.md` file in your project root (or anywhere in the tree up to the git root). Its contents are silently appended to every request so the AI knows your stack and constraints without you repeating it.
+
+```markdown
+# PAIRY.md
+Rails 7.2, Ruby 3.3, Postgres. Service objects in app/services/.
+We avoid fat models. Sidekiq for background jobs. RSpec for tests.
+```
+
 ### Saving a session
 
-`:PairySave` (or `<leader>aiw`) collects every answered `pair:` comment in the buffer — question, code context, and response — and writes it to a timestamped markdown file in `~/.local/share/pairy/sessions/`. The file opens in a vertical split immediately so you can read, edit, or save it elsewhere.
+`:PairySave` (or `<leader>aiw`) collects every answered `pair:` comment — question, code context, and response — and writes it to a timestamped markdown file in `~/.local/share/pairy/sessions/`. Opens in a floating window (press `q` to close).
 
-This is useful for revisiting your own reasoning later, or as a record during pair programming interviews.
+Good for revisiting your reasoning, debugging post-mortems, or keeping a record during pair programming interviews.
 
 ---
 
@@ -131,6 +148,7 @@ This is useful for revisiting your own reasoning later, or as a record during pa
 | `model` | `gemini-2.5-flash` | Any Gemini model ID |
 | `context_lines` | `20` | Lines of code above/below the comment sent as context |
 | `max_tokens` | `8192` | Max response length |
+| `max_history` | `5` | Max prior Q&As sent as conversation context |
 | `sessions_dir` | `~/.local/share/pairy/sessions` | Where session files are saved |
 
 To reload config without restarting: `:PairyReload`

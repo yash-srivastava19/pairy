@@ -149,6 +149,72 @@ function M.cancel()
   renderer.cancel_active(vim.api.nvim_get_current_buf())
 end
 
+-- Ask a question about a visual selection without writing a pair: comment.
+-- Triggered from visual mode; uses vim.ui.input for the question prompt.
+-- The response appears as virtual text at the last line of the selection.
+function M.ask_selection()
+  local buf = vim.api.nvim_get_current_buf()
+  local cfg = config.get()
+
+  if not cfg.api_key or cfg.api_key == "" then
+    util.notify_err("No API key found. Add 'api_key' to ~/.config/pairy/config.json")
+    return
+  end
+
+  -- Visual marks '<  and '> are set when leaving visual mode (which this keymap does)
+  local start_line = vim.fn.line("'<") - 1  -- 0-indexed
+  local end_line   = vim.fn.line("'>")       -- exclusive
+  local selected   = util.buf_lines(buf, start_line, end_line)
+
+  if #selected == 0 then
+    util.notify_warn("No selection.")
+    return
+  end
+
+  local filetype = vim.bo[buf].filetype
+  local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+  if filename == "" then filename = "[unnamed]" end
+
+  local context = string.format(
+    "File: %s (%s)\nSelected lines %d-%d:\n\n```%s\n%s\n```",
+    filename, filetype ~= "" and filetype or "text",
+    start_line + 1, end_line,
+    filetype,
+    table.concat(selected, "\n")
+  )
+
+  -- Response virtual text anchors to the last line of the selection
+  local line_nr = end_line - 1  -- 0-indexed
+
+  vim.ui.input({ prompt = "pair: " }, function(question)
+    if not question or util.trim(question) == "" then return end
+
+    local pair_comment = {
+      line_nr  = line_nr,
+      question = util.trim(question),
+      context  = context,
+      filetype = filetype,
+      filename = filename,
+    }
+
+    local opts = gather_opts(buf, cfg, line_nr)
+
+    renderer.cancel_active(buf)
+    renderer.show_pending(buf, line_nr)
+
+    local job = client.send(pair_comment, cfg, {
+      on_token = function(token) renderer.append_token(buf, line_nr, token) end,
+      on_done  = function(text)  renderer.finalize(buf, line_nr, text) end,
+      on_error = function(msg)
+        renderer.show_error(buf, line_nr, msg)
+        util.notify_err(msg)
+      end,
+    }, opts)
+
+    if job then renderer.set_active_job(buf, job) end
+  end)
+end
+
 -- Save all answered pair: comments in the buffer to a timestamped markdown file.
 -- The file is a readable log of the session: question, code context, and response.
 function M.save_session()
