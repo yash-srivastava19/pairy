@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/yash-srivastava19/pairy/actions/workflows/ci.yml/badge.svg)](https://github.com/yash-srivastava19/pairy/actions/workflows/ci.yml)
 
-AI pair programming inside Neovim. Write a `pair:` comment, hit a keymap, get a response as inline virtual text — never written to the file.
+AI pair programming inside Neovim and Emacs. Write a `pair:` comment, hit a keymap, get a response as inline virtual text — never written to the file.
 
 ```ruby
 def insert(node, val)
@@ -29,6 +29,7 @@ The AI pushes back, not just answers. It surfaces unstated assumptions and asks 
   - [Conversation Threading](#conversation-threading)
   - [Project Context](#project-context)
   - [Session Saving](#session-saving)
+- [Emacs](#emacs)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 
@@ -180,6 +181,47 @@ pairy walks up from the current file to the git root looking for `PAIRY.md`.
 
 ---
 
+## Emacs
+
+`pairy.el` is an Emacs port with the same workflow. It reads the same `~/.config/pairy/config.json` — one config for both editors.
+
+**Requirements:** Emacs `27.1+`, `curl`
+
+**Load from the repo** (equivalent of lazy.nvim's `dir = ...`):
+
+```elisp
+;; ~/.emacs.d/init.el
+(add-to-list 'load-path "~/.local/share/pairy")
+(require 'pairy)
+(global-pairy-mode 1)
+```
+
+Run `M-x pairy-init` to create the config file if you haven't already.
+
+### Keymaps
+
+| Key | Action |
+|---|---|
+| `C-c a s` | Send `pair:` comment at point |
+| `C-c a c` | Clear all responses |
+| `C-c a x` | Clear response at current line |
+| `C-c a K` | Cancel in-flight request |
+
+### Commands
+
+| Command | Action |
+|---|---|
+| `M-x pairy-send` | Send `pair:` comment at point |
+| `M-x pairy-clear` | Clear all responses |
+| `M-x pairy-clear-line` | Clear response at current line |
+| `M-x pairy-cancel` | Cancel in-flight request |
+| `M-x pairy-reload` | Reload config from disk |
+| `M-x pairy-init` | Create config file from template |
+
+Responses stream in as overlay text below the comment line — never written to the file, same as the Neovim version.
+
+---
+
 ## Troubleshooting
 
 Run `:PairyDoctor` or `:checkhealth pairy`. It validates:
@@ -200,7 +242,7 @@ If the config file doesn't exist yet, run `:PairyInit` — it creates a template
 ./scripts/test.sh
 ```
 
-Tests run in headless Neovim and cover unit, behaviour, and regression cases (50 tests).
+Runs both suites: 50 Neovim tests (headless nvim + ERT) and 30 Emacs ERT tests (80 total).
 
 ### Install local git hooks
 ```sh
