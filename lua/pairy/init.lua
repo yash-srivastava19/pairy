@@ -8,7 +8,7 @@ local util     = require("pairy.util")
 
 local M = {}
 local commands_registered = false
-local _send_all_token = nil  -- sentinel to stop an in-progress send_all chain
+local _send_all_token     = nil  -- sentinel to stop an in-progress send_all chain
 
 -- ─── Setup ──────────────────────────────────────────────────────────────────
 
@@ -24,16 +24,23 @@ function M.setup(opts)
 
   if not commands_registered then
     vim.api.nvim_create_user_command("PairySend",      M.send,         { desc = "Send pair: comment at cursor to AI" })
+    vim.api.nvim_create_user_command("PairyRetry",     M.retry,        { desc = "Re-send pair: comment at cursor" })
     vim.api.nvim_create_user_command("PairyClear",     M.clear,        { desc = "Clear all pairy responses in buffer" })
     vim.api.nvim_create_user_command("PairyClearLine", M.clear_line,   { desc = "Clear pairy response at cursor line" })
     vim.api.nvim_create_user_command("PairyAll",       M.send_all,     { desc = "Send all pair: comments in buffer" })
     vim.api.nvim_create_user_command("PairyCancel",    M.cancel,       { desc = "Cancel in-flight pairy request" })
     vim.api.nvim_create_user_command("PairySave",      M.save_session, { desc = "Save pairy session to a markdown file" })
+    vim.api.nvim_create_user_command("PairyInit",      M.init,         { desc = "Create config file from template" })
+    vim.api.nvim_create_user_command("PairyDoctor",    M.doctor,       { desc = "Run :checkhealth pairy" })
     vim.api.nvim_create_user_command("PairyReload", function()
-      config.reload()
-      util.notify("Config reloaded.")
-    end, { desc = "Reload pairy config from disk" })
-    vim.api.nvim_create_user_command("PairyDoctor", M.doctor, { desc = "Validate pairy setup and dependencies" })
+      for key in pairs(package.loaded) do
+        if key:match("^pairy") then
+          package.loaded[key] = nil
+        end
+      end
+      require("pairy").setup({})
+      util.notify("Pairy modules reloaded.")
+    end, { desc = "Reload all pairy Lua modules from disk" })
     commands_registered = true
   end
 end
@@ -41,9 +48,13 @@ end
 -- ─── Internal helpers ───────────────────────────────────────────────────────
 
 -- Build the opts table passed to client.send():
---   history         — prior answered pair: comments in this buffer (for threading)
+--   history         — prior answered pair: comments (for conversation threading)
 --   project_context — contents of PAIRY.md found in the project tree
 -- current_line_nr is excluded from history so a re-send doesn't include itself.
+---@param buf            number
+---@param cfg            PairyConfig
+---@param current_line_nr number
+---@return { history: table, project_context: string|nil }
 local function gather_opts(buf, cfg, current_line_nr)
   local responses    = renderer.get_responses(buf)
   local all_comments = detector.find_all(buf, cfg)
@@ -57,7 +68,6 @@ local function gather_opts(buf, cfg, current_line_nr)
     end
   end
 
-  -- Keep only the most recent N exchanges to avoid token bloat
   local max_h = cfg.max_history or 5
   while #history > max_h do table.remove(history, 1) end
 
@@ -67,28 +77,55 @@ local function gather_opts(buf, cfg, current_line_nr)
   }
 end
 
+-- Open a file in a centered floating window. Press q to dismiss.
+-- Defined before save_session so the local is in scope when save_session closes over it.
+---@param path string Absolute file path to display
+local function open_float(path)
+  local width  = math.floor(vim.o.columns * 0.82)
+  local height = math.floor(vim.o.lines   * 0.82)
+  local row    = math.floor((vim.o.lines   - height) / 2)
+  local col    = math.floor((vim.o.columns - width)  / 2)
+
+  local buf = vim.fn.bufadd(path)
+  vim.fn.bufload(buf)
+  vim.bo[buf].buflisted  = false
+  vim.bo[buf].filetype   = "markdown"
+  vim.bo[buf].modifiable = false
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative  = "editor",
+    width     = width,
+    height    = height,
+    row       = row,
+    col       = col,
+    style     = "minimal",
+    border    = "rounded",
+    title     = " Pairy Session ",
+    title_pos = "center",
+  })
+
+  vim.wo[win].wrap      = true
+  vim.wo[win].linebreak = true
+
+  vim.keymap.set("n", "q", function()
+    vim.api.nvim_win_close(win, true)
+  end, { buffer = buf, silent = true, nowait = true })
+end
+
 -- ─── Core actions ───────────────────────────────────────────────────────────
 
-function M.send()
-  local cfg = config.get()
-  if not cfg.api_key or cfg.api_key == "" then
-    util.notify_err("No API key found. Add 'api_key' to ~/.config/pairy/config.json")
-    return
-  end
-
-  local buf          = vim.api.nvim_get_current_buf()
-  local pair_comment = detector.find_at_cursor(buf, cfg)
-
-  if not pair_comment then
-    util.notify_warn("No 'pair:' comment found at or above cursor.")
-    return
-  end
-
+-- Common send logic shared by M.send, M.retry, M.ask_selection, M.send_all.
+-- Starts a request for pair_comment and wires up renderer callbacks.
+---@param buf          number
+---@param pair_comment PairComment
+---@param cfg          PairyConfig
+---@param phase?       string  Pending indicator text (default: "thinking...")
+local function do_send(buf, pair_comment, cfg, phase)
   local line_nr = pair_comment.line_nr
   local opts    = gather_opts(buf, cfg, line_nr)
 
   renderer.cancel_active(buf)
-  renderer.show_pending(buf, line_nr)
+  renderer.show_pending(buf, line_nr, phase)
 
   local job = client.send(pair_comment, cfg, {
     on_token = function(token) renderer.append_token(buf, line_nr, token) end,
@@ -102,51 +139,88 @@ function M.send()
   if job then renderer.set_active_job(buf, job) end
 end
 
+function M.send()
+  local cfg = config.get()
+  if not cfg.api_key or cfg.api_key == "" then
+    util.notify_err("No API key. Run :PairyInit to set one up.")
+    return
+  end
+
+  local buf          = vim.api.nvim_get_current_buf()
+  local pair_comment = detector.find_at_cursor(buf, cfg)
+
+  if not pair_comment then
+    util.notify_warn("No 'pair:' comment found at or above cursor.")
+    return
+  end
+
+  do_send(buf, pair_comment, cfg)
+end
+
+-- Re-send the pair: comment at cursor. Shows "retrying..." as the pending label
+-- so it's visually distinct from a first send.
+function M.retry()
+  local cfg = config.get()
+  if not cfg.api_key or cfg.api_key == "" then
+    util.notify_err("No API key. Run :PairyInit to set one up.")
+    return
+  end
+
+  local buf          = vim.api.nvim_get_current_buf()
+  local pair_comment = detector.find_at_cursor(buf, cfg)
+
+  if not pair_comment then
+    util.notify_warn("No 'pair:' comment found at or above cursor.")
+    return
+  end
+
+  do_send(buf, pair_comment, cfg, "retrying...")
+end
+
 function M.send_all()
   local cfg = config.get()
   if not cfg.api_key or cfg.api_key == "" then
-    util.notify_err("No API key found. Add 'api_key' to ~/.config/pairy/config.json")
+    util.notify_err("No API key. Run :PairyInit to set one up.")
     return
   end
 
   local buf      = vim.api.nvim_get_current_buf()
   local comments = detector.find_all(buf, cfg)
+  local total    = #comments
 
-  if #comments == 0 then
+  if total == 0 then
     util.notify_warn("No 'pair:' comments found in buffer.")
     return
   end
-
-  util.notify(string.format("Sending %d pair: comment(s)...", #comments))
 
   local token = {}  -- unique sentinel for this send_all invocation
   _send_all_token = token
 
   local i = 1
   local function send_next()
-    if _send_all_token ~= token then return end  -- cancelled or superseded
+    if _send_all_token ~= token then return end
 
     local pair_comment = comments[i]
     if not pair_comment then
-      util.notify("Finished sending all pair: comments.")
+      util.notify(string.format("Done (%d/%d answered).", i - 1, total))
       return
     end
 
     local line_nr = pair_comment.line_nr
-    local opts = gather_opts(buf, cfg, line_nr)
-    renderer.show_pending(buf, line_nr)
+    local opts    = gather_opts(buf, cfg, line_nr)
+    renderer.show_pending(buf, line_nr, string.format("[%d/%d]", i, total))
 
     local job = client.send(pair_comment, cfg, {
-      on_token = function(token_chunk) renderer.append_token(buf, line_nr, token_chunk) end,
+      on_token = function(tk) renderer.append_token(buf, line_nr, tk) end,
       on_done  = function(text)
         renderer.finalize(buf, line_nr, text)
         i = i + 1
         send_next()
       end,
       on_error = function(msg)
-        if _send_all_token ~= token then return end  -- swallow errors from a cancelled job
+        if _send_all_token ~= token then return end
         renderer.show_error(buf, line_nr, msg)
-        util.notify_err(string.format("Comment %d: %s", i, msg))
+        util.notify_err(string.format("[%d/%d] %s", i, total, msg))
         i = i + 1
         send_next()
       end,
@@ -173,25 +247,23 @@ function M.clear_line()
 end
 
 function M.cancel()
-  _send_all_token = nil  -- stop any in-progress send_all chain
+  _send_all_token = nil
   renderer.cancel_active(vim.api.nvim_get_current_buf())
 end
 
 -- Ask a question about a visual selection without writing a pair: comment.
--- Triggered from visual mode; uses vim.ui.input for the question prompt.
--- The response appears as virtual text at the last line of the selection.
+-- Uses vim.ui.input for the prompt; anchors response to the last line of selection.
 function M.ask_selection()
   local buf = vim.api.nvim_get_current_buf()
   local cfg = config.get()
 
   if not cfg.api_key or cfg.api_key == "" then
-    util.notify_err("No API key found. Add 'api_key' to ~/.config/pairy/config.json")
+    util.notify_err("No API key. Run :PairyInit to set one up.")
     return
   end
 
-  -- Visual marks '<  and '> are set when leaving visual mode (which this keymap does)
-  local start_line = vim.fn.line("'<") - 1  -- 0-indexed
-  local end_line   = vim.fn.line("'>")       -- exclusive
+  local start_line = vim.fn.line("'<") - 1
+  local end_line   = vim.fn.line("'>")
   local selected   = util.buf_lines(buf, start_line, end_line)
 
   if #selected == 0 then
@@ -211,8 +283,7 @@ function M.ask_selection()
     table.concat(selected, "\n")
   )
 
-  -- Response virtual text anchors to the last line of the selection
-  local line_nr = end_line - 1  -- 0-indexed
+  local line_nr = end_line - 1  -- 0-indexed, anchors to last selected line
 
   vim.ui.input({ prompt = "pair: " }, function(question)
     if not question or util.trim(question) == "" then return end
@@ -225,33 +296,17 @@ function M.ask_selection()
       filename = filename,
     }
 
-    local opts = gather_opts(buf, cfg, line_nr)
-
-    renderer.cancel_active(buf)
-    renderer.show_pending(buf, line_nr)
-
-    local job = client.send(pair_comment, cfg, {
-      on_token = function(token) renderer.append_token(buf, line_nr, token) end,
-      on_done  = function(text)  renderer.finalize(buf, line_nr, text) end,
-      on_error = function(msg)
-        renderer.show_error(buf, line_nr, msg)
-        util.notify_err(msg)
-      end,
-    }, opts)
-
-    if job then renderer.set_active_job(buf, job) end
+    do_send(buf, pair_comment, cfg)
   end)
 end
 
--- Save all answered pair: comments in the buffer to a timestamped markdown file.
--- The file is a readable log of the session: question, code context, and response.
+-- Save all answered pair: comments to a timestamped markdown file.
 function M.save_session()
   local cfg       = config.get()
   local buf       = vim.api.nvim_get_current_buf()
   local comments  = detector.find_all(buf, cfg)
   local responses = renderer.get_responses(buf)
 
-  -- Only save comments that have a response
   local answered = {}
   for _, c in ipairs(comments) do
     if responses[c.line_nr] and responses[c.line_nr] ~= "" then
@@ -267,7 +322,6 @@ function M.save_session()
   local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
   if filename == "" then filename = "unnamed" end
 
-  -- Build markdown content
   local lines = {
     "# Pairy Session",
     "",
@@ -291,7 +345,6 @@ function M.save_session()
     table.insert(lines, "")
   end
 
-  -- Write to sessions directory
   local sessions_dir = vim.fn.expand(cfg.sessions_dir)
   vim.fn.mkdir(sessions_dir, "p")
 
@@ -311,39 +364,39 @@ function M.save_session()
   open_float(session_path)
 end
 
--- Open a file in a centered floating window. Press q to dismiss.
--- Does not create any splits or disturb the current window layout.
-local function open_float(path)
-  local width  = math.floor(vim.o.columns * 0.82)
-  local height = math.floor(vim.o.lines   * 0.82)
-  local row    = math.floor((vim.o.lines   - height) / 2)
-  local col    = math.floor((vim.o.columns - width)  / 2)
+-- Create ~/.config/pairy/config.json from a template if it doesn't exist,
+-- then open it for editing.
+function M.init()
+  local path = config.config_path()
 
-  -- bufadd + bufload = file-backed buffer without opening it in any window
-  local buf = vim.fn.bufadd(path)
-  vim.fn.bufload(buf)
-  vim.bo[buf].buflisted  = false
-  vim.bo[buf].filetype   = "markdown"
-  vim.bo[buf].modifiable = false
+  if vim.fn.filereadable(path) == 1 then
+    util.notify("Config exists at " .. path .. ". Run :checkhealth pairy to validate.")
+    return
+  end
 
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative  = "editor",
-    width     = width,
-    height    = height,
-    row       = row,
-    col       = col,
-    style     = "minimal",
-    border    = "rounded",
-    title     = " Pairy Session ",
-    title_pos = "center",
-  })
+  local dir = vim.fn.fnamemodify(path, ":h")
+  vim.fn.mkdir(dir, "p")
 
-  vim.wo[win].wrap      = true
-  vim.wo[win].linebreak = true
+  local template = table.concat({
+    "{",
+    '  "api_key": "YOUR_GEMINI_API_KEY",',
+    '  "model": "gemini-2.5-flash",',
+    '  "context_lines": 20,',
+    '  "max_tokens": 8192',
+    "}",
+    "",
+  }, "\n")
 
-  vim.keymap.set("n", "q", function()
-    vim.api.nvim_win_close(win, true)
-  end, { buffer = buf, silent = true, nowait = true })
+  local f = io.open(path, "w")
+  if not f then
+    util.notify_err("Could not create " .. path)
+    return
+  end
+  f:write(template)
+  f:close()
+
+  util.notify("Created " .. path .. " — add your API key and save.")
+  vim.cmd("edit " .. path)
 end
 
 function M.doctor()
