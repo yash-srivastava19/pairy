@@ -19,5 +19,10 @@ jobs:
           neovim: true
           version: stable
 
+      - name: Setup Emacs
+        uses: purcell/setup-emacs@master
+        with:
+          version: 29.4
+
       - name: Run tests
         run: ./scripts/test.sh
