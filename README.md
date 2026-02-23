@@ -11,6 +11,8 @@ def insert(node, val)
 
 The AI pushes back, not just answers. It surfaces unstated assumptions and asks one probing question when your reasoning has a gap.
 
+![pairy demo](assets/demo.png)
+
 ---
 
 ## Requirements
