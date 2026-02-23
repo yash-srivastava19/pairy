@@ -58,7 +58,7 @@
     (user-error "pairy: no config at %s — run M-x pairy-init" pairy--config-path))
   (with-temp-buffer
     (insert-file-contents pairy--config-path)
-    (let ((raw (json-parse-buffer :object-type 'plist)))
+    (let ((raw (json-parse-buffer :object-type 'plist :array-type 'array)))
       (setq pairy--config
             (list :api-key       (or (plist-get raw :api_key) "")
                   :model         (or (plist-get raw :model) "gemini-2.5-flash")
@@ -249,8 +249,7 @@ Returns delta text string, \"__ERROR__:msg\", or nil (ignore)."
    (t
     (let ((payload (string-trim (substring line 5))))
       (condition-case nil
-          (let* ((parsed (json-parse-string payload :object-type 'plist
-                                                    :array-type  'vector))
+          (let* ((parsed (json-parse-string payload :object-type 'plist :array-type 'array))
                  (err    (and (listp parsed) (plist-get parsed :error))))
             (cond
              ;; API error object
