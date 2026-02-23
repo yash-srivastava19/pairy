@@ -182,9 +182,42 @@ function M.save_session()
   f:close()
 
   util.notify(string.format("Session saved (%d Q&A) → %s", #answered, session_path))
+  open_float(session_path)
+end
 
-  -- Open the session file in a vertical split so the user can inspect/edit it
-  vim.cmd("vsplit " .. vim.fn.fnameescape(session_path))
+-- Open a file in a centered floating window. Press q to dismiss.
+-- Does not create any splits or disturb the current window layout.
+function open_float(path)
+  local width  = math.floor(vim.o.columns * 0.82)
+  local height = math.floor(vim.o.lines   * 0.82)
+  local row    = math.floor((vim.o.lines   - height) / 2)
+  local col    = math.floor((vim.o.columns - width)  / 2)
+
+  -- bufadd + bufload = file-backed buffer without opening it in any window
+  local buf = vim.fn.bufadd(path)
+  vim.fn.bufload(buf)
+  vim.bo[buf].buflisted  = false
+  vim.bo[buf].filetype   = "markdown"
+  vim.bo[buf].modifiable = false
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative  = "editor",
+    width     = width,
+    height    = height,
+    row       = row,
+    col       = col,
+    style     = "minimal",
+    border    = "rounded",
+    title     = " Pairy Session ",
+    title_pos = "center",
+  })
+
+  vim.wo[win].wrap      = true
+  vim.wo[win].linebreak = true
+
+  vim.keymap.set("n", "q", function()
+    vim.api.nvim_win_close(win, true)
+  end, { buffer = buf, silent = true, nowait = true })
 end
 
 return M
