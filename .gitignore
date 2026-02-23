@@ -7,3 +7,6 @@ config.json
 
 # Claude Code workspace settings (developer-local, not project config)
 .claude/
+
+# Neovim runtime logs
+.nvimlog

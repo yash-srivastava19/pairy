@@ -14,6 +14,10 @@ function M.notify_warn(msg)
   vim.notify("[pairy] " .. msg, vim.log.levels.WARN)
 end
 
+function M.has_executable(bin)
+  return vim.fn.executable(bin) == 1
+end
+
 function M.trim(s)
   return s:match("^%s*(.-)%s*$")
 end

@@ -7,6 +7,8 @@ local renderer = require("pairy.renderer")
 local util     = require("pairy.util")
 
 local M = {}
+local commands_registered = false
+local _send_all_token = nil  -- sentinel to stop an in-progress send_all chain
 
 -- ─── Setup ──────────────────────────────────────────────────────────────────
 
@@ -20,16 +22,20 @@ function M.setup(opts)
     callback = renderer.setup_highlights,
   })
 
-  vim.api.nvim_create_user_command("PairySend",      M.send,         { desc = "Send pair: comment at cursor to AI" })
-  vim.api.nvim_create_user_command("PairyClear",     M.clear,        { desc = "Clear all pairy responses in buffer" })
-  vim.api.nvim_create_user_command("PairyClearLine", M.clear_line,   { desc = "Clear pairy response at cursor line" })
-  vim.api.nvim_create_user_command("PairyAll",       M.send_all,     { desc = "Send all pair: comments in buffer" })
-  vim.api.nvim_create_user_command("PairyCancel",    M.cancel,       { desc = "Cancel in-flight pairy request" })
-  vim.api.nvim_create_user_command("PairySave",      M.save_session, { desc = "Save pairy session to a markdown file" })
-  vim.api.nvim_create_user_command("PairyReload", function()
-    config.reload()
-    util.notify("Config reloaded.")
-  end, { desc = "Reload pairy config from disk" })
+  if not commands_registered then
+    vim.api.nvim_create_user_command("PairySend",      M.send,         { desc = "Send pair: comment at cursor to AI" })
+    vim.api.nvim_create_user_command("PairyClear",     M.clear,        { desc = "Clear all pairy responses in buffer" })
+    vim.api.nvim_create_user_command("PairyClearLine", M.clear_line,   { desc = "Clear pairy response at cursor line" })
+    vim.api.nvim_create_user_command("PairyAll",       M.send_all,     { desc = "Send all pair: comments in buffer" })
+    vim.api.nvim_create_user_command("PairyCancel",    M.cancel,       { desc = "Cancel in-flight pairy request" })
+    vim.api.nvim_create_user_command("PairySave",      M.save_session, { desc = "Save pairy session to a markdown file" })
+    vim.api.nvim_create_user_command("PairyReload", function()
+      config.reload()
+      util.notify("Config reloaded.")
+    end, { desc = "Reload pairy config from disk" })
+    vim.api.nvim_create_user_command("PairyDoctor", M.doctor, { desc = "Validate pairy setup and dependencies" })
+    commands_registered = true
+  end
 end
 
 -- ─── Internal helpers ───────────────────────────────────────────────────────
@@ -113,22 +119,43 @@ function M.send_all()
 
   util.notify(string.format("Sending %d pair: comment(s)...", #comments))
 
-  for i, pair_comment in ipairs(comments) do
-    vim.defer_fn(function()
-      local line_nr = pair_comment.line_nr
-      -- gather_opts at execution time so earlier responses are included as history
-      local opts = gather_opts(buf, cfg, line_nr)
-      renderer.show_pending(buf, line_nr)
-      client.send(pair_comment, cfg, {
-        on_token = function(token) renderer.append_token(buf, line_nr, token) end,
-        on_done  = function(text)  renderer.finalize(buf, line_nr, text) end,
-        on_error = function(msg)
-          renderer.show_error(buf, line_nr, msg)
-          util.notify_err(string.format("Comment %d: %s", i, msg))
-        end,
-      }, opts)
-    end, (i - 1) * 300)
+  local token = {}  -- unique sentinel for this send_all invocation
+  _send_all_token = token
+
+  local i = 1
+  local function send_next()
+    if _send_all_token ~= token then return end  -- cancelled or superseded
+
+    local pair_comment = comments[i]
+    if not pair_comment then
+      util.notify("Finished sending all pair: comments.")
+      return
+    end
+
+    local line_nr = pair_comment.line_nr
+    local opts = gather_opts(buf, cfg, line_nr)
+    renderer.show_pending(buf, line_nr)
+
+    local job = client.send(pair_comment, cfg, {
+      on_token = function(token_chunk) renderer.append_token(buf, line_nr, token_chunk) end,
+      on_done  = function(text)
+        renderer.finalize(buf, line_nr, text)
+        i = i + 1
+        send_next()
+      end,
+      on_error = function(msg)
+        if _send_all_token ~= token then return end  -- swallow errors from a cancelled job
+        renderer.show_error(buf, line_nr, msg)
+        util.notify_err(string.format("Comment %d: %s", i, msg))
+        i = i + 1
+        send_next()
+      end,
+    }, opts)
+
+    if job then renderer.set_active_job(buf, job) end
   end
+
+  send_next()
 end
 
 function M.clear()
@@ -146,6 +173,7 @@ function M.clear_line()
 end
 
 function M.cancel()
+  _send_all_token = nil  -- stop any in-progress send_all chain
   renderer.cancel_active(vim.api.nvim_get_current_buf())
 end
 
@@ -285,7 +313,7 @@ end
 
 -- Open a file in a centered floating window. Press q to dismiss.
 -- Does not create any splits or disturb the current window layout.
-function open_float(path)
+local function open_float(path)
   local width  = math.floor(vim.o.columns * 0.82)
   local height = math.floor(vim.o.lines   * 0.82)
   local row    = math.floor((vim.o.lines   - height) / 2)
@@ -316,6 +344,10 @@ function open_float(path)
   vim.keymap.set("n", "q", function()
     vim.api.nvim_win_close(win, true)
   end, { buffer = buf, silent = true, nowait = true })
+end
+
+function M.doctor()
+  vim.cmd("checkhealth pairy")
 end
 
 return M

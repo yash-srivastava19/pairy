@@ -25,7 +25,7 @@ function M.extract_question(line_text)
   return nil
 end
 
--- Build a formatted context block to send to Claude.
+-- Build a formatted context block to send to the model.
 -- Returns a multi-line string with: header, code fence, numbered lines,
 -- with the pair: line marked with '>'.
 function M.build_context(buf, line_nr_0, context_lines)

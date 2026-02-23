@@ -119,6 +119,11 @@ end
 -- Returns      : vim.system job object (for cancellation)
 -- opts (optional): { history = [...], project_context = string }
 function M.send(pair_comment, cfg, callbacks, opts)
+  if not util.has_executable("curl") then
+    callbacks.on_error("curl not found in PATH")
+    return nil
+  end
+
   local api_key = cfg.api_key
   if not api_key or api_key == "" then
     callbacks.on_error("No API key. Add 'api_key' to ~/.config/pairy/config.json")
