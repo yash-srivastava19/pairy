@@ -30,24 +30,39 @@ local function build_url(cfg)
   )
 end
 
--- Gemini request body format
-local function build_request_body(pair_comment, cfg)
-  local content = table.concat({
+-- Build a Gemini request body.
+-- opts (optional): { history = [{question, response}], project_context = string }
+-- history turns the request into a multi-turn conversation so the AI has context
+-- from prior Q&As in the same buffer. project_context comes from PAIRY.md.
+local function build_request_body(pair_comment, cfg, opts)
+  opts = opts or {}
+
+  local user_content = table.concat({
     pair_comment.context,
     "",
     "Question: " .. pair_comment.question,
   }, "\n")
 
+  -- Append project context to the system prompt when available
+  local system_text = SYSTEM_PROMPT
+  if opts.project_context then
+    system_text = system_text
+      .. "\n\nProject context (from PAIRY.md):\n"
+      .. opts.project_context
+  end
+
+  -- Build multi-turn contents: interleave prior Q&As then append current question
+  local contents = {}
+  for _, exchange in ipairs(opts.history or {}) do
+    table.insert(contents, { role = "user",  parts = { { text = exchange.question } } })
+    table.insert(contents, { role = "model", parts = { { text = exchange.response } } })
+  end
+  table.insert(contents, { role = "user", parts = { { text = user_content } } })
+
   return {
-    system_instruction = {
-      parts = { { text = SYSTEM_PROMPT } },
-    },
-    contents = {
-      { role = "user", parts = { { text = content } } },
-    },
-    generationConfig = {
-      maxOutputTokens = cfg.max_tokens or 512,
-    },
+    system_instruction = { parts = { { text = system_text } } },
+    contents           = contents,
+    generationConfig   = { maxOutputTokens = cfg.max_tokens },
   }
 end
 
@@ -102,14 +117,15 @@ end
 -- cfg          : config table from config.get()
 -- callbacks    : { on_token(text), on_done(full_text), on_error(msg) }
 -- Returns      : vim.system job object (for cancellation)
-function M.send(pair_comment, cfg, callbacks)
+-- opts (optional): { history = [...], project_context = string }
+function M.send(pair_comment, cfg, callbacks, opts)
   local api_key = cfg.api_key
   if not api_key or api_key == "" then
     callbacks.on_error("No API key. Add 'api_key' to ~/.config/pairy/config.json")
     return nil
   end
 
-  local body      = build_request_body(pair_comment, cfg)
+  local body      = build_request_body(pair_comment, cfg, opts)
   local body_json = vim.json.encode(body)
   local tmp_path  = util.tmp_file(body_json)
   if not tmp_path then

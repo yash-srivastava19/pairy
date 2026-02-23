@@ -32,6 +32,35 @@ function M.setup(opts)
   end, { desc = "Reload pairy config from disk" })
 end
 
+-- ─── Internal helpers ───────────────────────────────────────────────────────
+
+-- Build the opts table passed to client.send():
+--   history         — prior answered pair: comments in this buffer (for threading)
+--   project_context — contents of PAIRY.md found in the project tree
+-- current_line_nr is excluded from history so a re-send doesn't include itself.
+local function gather_opts(buf, cfg, current_line_nr)
+  local responses    = renderer.get_responses(buf)
+  local all_comments = detector.find_all(buf, cfg)
+
+  local history = {}
+  for _, c in ipairs(all_comments) do
+    if c.line_nr ~= current_line_nr
+      and responses[c.line_nr] and responses[c.line_nr] ~= ""
+    then
+      table.insert(history, { question = c.question, response = responses[c.line_nr] })
+    end
+  end
+
+  -- Keep only the most recent N exchanges to avoid token bloat
+  local max_h = cfg.max_history or 5
+  while #history > max_h do table.remove(history, 1) end
+
+  return {
+    history         = history,
+    project_context = detector.find_project_context(buf),
+  }
+end
+
 -- ─── Core actions ───────────────────────────────────────────────────────────
 
 function M.send()
@@ -49,10 +78,11 @@ function M.send()
     return
   end
 
-  renderer.cancel_active(buf)
-  renderer.show_pending(buf, pair_comment.line_nr)
-
   local line_nr = pair_comment.line_nr
+  local opts    = gather_opts(buf, cfg, line_nr)
+
+  renderer.cancel_active(buf)
+  renderer.show_pending(buf, line_nr)
 
   local job = client.send(pair_comment, cfg, {
     on_token = function(token) renderer.append_token(buf, line_nr, token) end,
@@ -61,7 +91,7 @@ function M.send()
       renderer.show_error(buf, line_nr, msg)
       util.notify_err(msg)
     end,
-  })
+  }, opts)
 
   if job then renderer.set_active_job(buf, job) end
 end
@@ -86,6 +116,8 @@ function M.send_all()
   for i, pair_comment in ipairs(comments) do
     vim.defer_fn(function()
       local line_nr = pair_comment.line_nr
+      -- gather_opts at execution time so earlier responses are included as history
+      local opts = gather_opts(buf, cfg, line_nr)
       renderer.show_pending(buf, line_nr)
       client.send(pair_comment, cfg, {
         on_token = function(token) renderer.append_token(buf, line_nr, token) end,
@@ -94,7 +126,7 @@ function M.send_all()
           renderer.show_error(buf, line_nr, msg)
           util.notify_err(string.format("Comment %d: %s", i, msg))
         end,
-      })
+      }, opts)
     end, (i - 1) * 300)
   end
 end

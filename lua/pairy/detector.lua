@@ -121,4 +121,26 @@ function M.find_all(buf, cfg)
   return results
 end
 
+-- Walk up from the buffer's file directory looking for a PAIRY.md file.
+-- Stops at the git root or the filesystem root, whichever comes first.
+-- Returns the file contents as a string, or nil if not found.
+function M.find_project_context(buf)
+  local filepath = vim.api.nvim_buf_get_name(buf)
+  if filepath == "" then return nil end
+
+  local dir = vim.fn.fnamemodify(filepath, ":p:h")
+
+  while true do
+    if vim.fn.filereadable(dir .. "/PAIRY.md") == 1 then
+      return table.concat(vim.fn.readfile(dir .. "/PAIRY.md"), "\n")
+    end
+    if vim.fn.isdirectory(dir .. "/.git") == 1 then break end  -- stop at git root
+    local parent = vim.fn.fnamemodify(dir, ":h")
+    if parent == dir then break end  -- filesystem root
+    dir = parent
+  end
+
+  return nil
+end
+
 return M
