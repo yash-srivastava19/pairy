@@ -4,6 +4,11 @@ local util = require("pairy.util")
 
 local M = {}
 
+---@class PairyCallbacks
+---@field on_token fun(token: string)  Called for each streamed text chunk
+---@field on_done  fun(text: string)   Called when stream completes with full response
+---@field on_error fun(msg: string)    Called on any error (API, network, or parse)
+
 local SYSTEM_PROMPT = [[You are a senior pair programmer. The user has left a `pair:` comment with a question or thought. Your job is not just to answer — it is to help them think more clearly and write better code.
 
 How to respond:
@@ -22,8 +27,10 @@ Constraints:
 - Always reference the actual code: use the variable names, function names, and patterns visible in the context.]]
 
 -- Gemini streaming endpoint (key in URL, no auth header needed)
+---@param cfg PairyConfig
+---@return string
 local function build_url(cfg)
-  local model = cfg.model or "gemini-2.0-flash"
+  local model = cfg.model or "gemini-2.5-flash"
   return string.format(
     "https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s",
     model, cfg.api_key
@@ -31,9 +38,12 @@ local function build_url(cfg)
 end
 
 -- Build a Gemini request body.
--- opts (optional): { history = [{question, response}], project_context = string }
--- history turns the request into a multi-turn conversation so the AI has context
--- from prior Q&As in the same buffer. project_context comes from PAIRY.md.
+-- opts.history        — prior answered pair: comments (for conversation threading)
+-- opts.project_context — contents of PAIRY.md prepended to the system prompt
+---@param pair_comment PairComment
+---@param cfg          PairyConfig
+---@param opts?        { history?: table, project_context?: string }
+---@return table
 local function build_request_body(pair_comment, cfg, opts)
   opts = opts or {}
 
@@ -43,7 +53,6 @@ local function build_request_body(pair_comment, cfg, opts)
     "Question: " .. pair_comment.question,
   }, "\n")
 
-  -- Append project context to the system prompt when available
   local system_text = SYSTEM_PROMPT
   if opts.project_context then
     system_text = system_text
@@ -51,7 +60,7 @@ local function build_request_body(pair_comment, cfg, opts)
       .. opts.project_context
   end
 
-  -- Build multi-turn contents: interleave prior Q&As then append current question
+  -- Interleave prior Q&As then append the current question
   local contents = {}
   for _, exchange in ipairs(opts.history or {}) do
     table.insert(contents, { role = "user",  parts = { { text = exchange.question } } })
@@ -67,8 +76,10 @@ local function build_request_body(pair_comment, cfg, opts)
 end
 
 -- Parse a single SSE line from Gemini's stream.
--- Returns: delta_text string, "__ERROR__:msg", or nil (ignore).
+-- Returns: delta_text string, "__ERROR__:msg", or nil (ignore line).
 -- Note: Gemini does NOT send [DONE] — the stream ends when curl exits.
+---@param line string
+---@return string|nil
 local function parse_sse_line(line)
   line = util.trim(line)
   if line == "" then return nil end
@@ -76,17 +87,15 @@ local function parse_sse_line(line)
   if vim.startswith(line, ":") then return nil end  -- SSE comment
 
   if not vim.startswith(line, "data:") then return nil end
-  line = util.trim(line:sub(6))  -- strip "data:" prefix
+  line = util.trim(line:sub(6))
 
   local ok, decoded = pcall(vim.json.decode, line)
-  if not ok then return nil end
+  if not ok or type(decoded) ~= "table" then return nil end
 
-  -- Gemini error response
   if decoded.error then
     return "__ERROR__:" .. (decoded.error.message or "unknown API error")
   end
 
-  -- Gemini text delta: candidates[1].content.parts[1].text
   if decoded.candidates
     and decoded.candidates[1]
     and decoded.candidates[1].content
@@ -101,6 +110,8 @@ local function parse_sse_line(line)
 end
 
 -- Check if collected output looks like a top-level API error JSON body
+---@param text string
+---@return string|nil  Error message, or nil if not an error
 local function check_for_api_error(text)
   local trimmed = util.trim(text)
   if not vim.startswith(trimmed, "{") then return nil end
@@ -112,12 +123,12 @@ local function check_for_api_error(text)
   return nil
 end
 
--- Send a pair comment to Gemini.
--- pair_comment : PairComment table from detector
--- cfg          : config table from config.get()
--- callbacks    : { on_token(text), on_done(full_text), on_error(msg) }
--- Returns      : vim.system job object (for cancellation)
--- opts (optional): { history = [...], project_context = string }
+-- Send a pair comment to Gemini (streaming SSE via curl).
+---@param pair_comment PairComment
+---@param cfg          PairyConfig
+---@param callbacks    PairyCallbacks
+---@param opts?        { history?: table, project_context?: string }
+---@return vim.SystemObj|nil  Job handle for cancellation, or nil on early failure
 function M.send(pair_comment, cfg, callbacks, opts)
   if not util.has_executable("curl") then
     callbacks.on_error("curl not found in PATH")
@@ -159,7 +170,7 @@ function M.send(pair_comment, cfg, callbacks, opts)
   local function handle_chunk(chunk)
     if not chunk then return end
     line_buf.partial = line_buf.partial .. chunk
-    local parts = vim.split(line_buf.partial, "\n", { plain = true })
+    local parts      = vim.split(line_buf.partial, "\n", { plain = true })
     line_buf.partial = table.remove(parts)  -- keep incomplete tail
     for _, line in ipairs(parts) do
       process_line(line)
@@ -183,7 +194,7 @@ function M.send(pair_comment, cfg, callbacks, opts)
         if err then return end
         handle_chunk(chunk)
       end,
-      stderr = function(err, chunk)
+      stderr = function(_, chunk)
         if chunk then table.insert(stderr_chunks, chunk) end
       end,
     },
@@ -205,13 +216,12 @@ function M.send(pair_comment, cfg, callbacks, opts)
 
       if result.code ~= 0 then
         local stderr_str = table.concat(stderr_chunks, "")
-        local msg = "curl error (code " .. result.code .. ")"
+        local msg        = "curl error (code " .. result.code .. ")"
         if stderr_str ~= "" then
           msg = msg .. ": " .. util.trim(stderr_str):sub(1, 120)
         end
         vim.schedule(function() callbacks.on_error(msg) end)
       elseif acc.text ~= "" then
-        -- Gemini: no [DONE] marker, stream ends when curl exits cleanly
         vim.schedule(function() callbacks.on_done(acc.text) end)
       else
         vim.schedule(function() callbacks.on_error("Empty response from API") end)
@@ -221,5 +231,8 @@ function M.send(pair_comment, cfg, callbacks, opts)
 
   return job
 end
+
+-- Exposed for tests only — not part of the public API.
+M._parse_sse_line = parse_sse_line
 
 return M

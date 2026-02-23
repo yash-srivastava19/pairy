@@ -168,13 +168,25 @@ function M.setup_highlights()
   vim.api.nvim_set_hl(0, "PairyError",    { fg = "#C25A5A", italic = true, default = true })
 end
 
+---@return number  Extmark namespace id
 function M.get_namespace() return ns end
 
--- Show a "thinking..." indicator immediately when a request starts
-function M.show_pending(buf, line_nr)
-  local st     = get_state(buf)
-  local indent = get_indent(buf, line_nr)
-  local virt   = { { { indent .. MARKER .. "thinking...", "PairyPending" } } }
+-- Show a pending indicator when a request starts.
+-- Deletes any existing extmark on this line first to avoid orphaned virtual text.
+---@param buf     number Buffer handle
+---@param line_nr number 0-indexed line
+---@param phase?  string Status text (default: "thinking...")
+function M.show_pending(buf, line_nr, phase)
+  local st = get_state(buf)
+
+  -- Delete existing extmark for this line before creating a new one
+  if st.extmarks[line_nr] then
+    vim.api.nvim_buf_del_extmark(buf, ns, st.extmarks[line_nr])
+  end
+
+  local indent     = get_indent(buf, line_nr)
+  local label      = phase or "thinking..."
+  local virt       = { { { indent .. MARKER .. label, "PairyPending" } } }
   local extmark_id = vim.api.nvim_buf_set_extmark(buf, ns, line_nr, 0, {
     virt_lines       = virt,
     virt_lines_above = false,
@@ -184,7 +196,10 @@ function M.show_pending(buf, line_nr)
   if queues[buf] then queues[buf][line_nr] = nil end
 end
 
--- Enqueue a token's words for word-by-word drip display
+-- Enqueue a token's words for word-by-word drip display.
+---@param buf     number Buffer handle
+---@param line_nr number 0-indexed line
+---@param token   string Text chunk from the stream
 function M.append_token(buf, line_nr, token)
   local st = get_state(buf)
   if not st or not st.extmarks[line_nr] then return end
@@ -202,7 +217,10 @@ function M.append_token(buf, line_nr, token)
   end
 end
 
--- Called when the stream ends — drains queue then switches to final highlight
+-- Called when the stream ends. Drains the word queue then applies final highlight.
+---@param buf       number Buffer handle
+---@param line_nr   number 0-indexed line
+---@param full_text string Complete response text
 function M.finalize(buf, line_nr, full_text)
   local st = get_state(buf)
   if not st or not st.extmarks[line_nr] then return end
@@ -218,7 +236,9 @@ function M.finalize(buf, line_nr, full_text)
   -- Otherwise tick() will switch highlight when the queue drains
 end
 
--- Show an error for line_nr
+---@param buf     number Buffer handle
+---@param line_nr number 0-indexed line
+---@param msg     string Error message to display
 function M.show_error(buf, line_nr, msg)
   local st         = get_state(buf)
   local extmark_id = st and st.extmarks[line_nr]
@@ -257,7 +277,9 @@ function M.clear_all(buf)
   queues[buf] = nil
 end
 
--- Return a snapshot of all saved responses for a buffer: { [line_nr] = text }
+-- Return a snapshot of all saved responses for a buffer.
+---@param buf number Buffer handle
+---@return table<number, string>  Map of 0-indexed line_nr → response text
 function M.get_responses(buf)
   local st = state[buf]
   if not st then return {} end
