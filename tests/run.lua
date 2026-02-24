@@ -573,6 +573,61 @@ run("client SSE: whitespace around data: prefix is trimmed", function()
   expect("trimmed ok", result == "trimmed", "whitespace after data: should be handled")
 end)
 
+run("renderer.toggle_hidden: hides extmarks, preserves responses", function()
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "-- pair: test", "code" })
+
+  renderer.show_pending(buf, 0)
+  renderer.finalize(buf, 0, "the response")
+
+  -- Wait for the word-drip to drain
+  vim.wait(500, function()
+    return renderer.get_responses(buf)[0] == "the response"
+  end, 20)
+
+  renderer.toggle_hidden(buf)  -- hide
+
+  local marks = vim.api.nvim_buf_get_extmarks(buf, renderer.get_namespace(), 0, -1, {})
+  local resp  = renderer.get_responses(buf)
+  expect("extmarks gone",  #marks == 0,              "extmarks should be removed when hidden")
+  expect("response kept",  resp[0] == "the response", "response data should survive toggle")
+end)
+
+run("renderer.toggle_hidden: restores extmarks on second call", function()
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "-- pair: test", "code" })
+
+  renderer.show_pending(buf, 0)
+  renderer.finalize(buf, 0, "answer")
+
+  vim.wait(500, function()
+    return renderer.get_responses(buf)[0] == "answer"
+  end, 20)
+
+  renderer.toggle_hidden(buf)  -- hide
+  renderer.toggle_hidden(buf)  -- show
+
+  local marks = vim.api.nvim_buf_get_extmarks(buf, renderer.get_namespace(), 0, -1, {})
+  expect("extmarks restored", #marks >= 1, "extmarks should be re-created on show")
+end)
+
+run("renderer.toggle_hidden: returns true when hiding, false when showing", function()
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "-- pair: test" })
+
+  renderer.show_pending(buf, 0)
+  renderer.finalize(buf, 0, "answer")
+
+  vim.wait(500, function()
+    return renderer.get_responses(buf)[0] == "answer"
+  end, 20)
+
+  local hidden = renderer.toggle_hidden(buf)
+  expect("returns true on hide",  hidden == true,  "toggle_hidden should return true when hiding")
+  local shown = renderer.toggle_hidden(buf)
+  expect("returns false on show", shown  == false, "toggle_hidden should return false when showing")
+end)
+
 -- ─── Results ────────────────────────────────────────────────────────────────
 
 io.stdout:write(string.format("\n%d tests run.\n", total))

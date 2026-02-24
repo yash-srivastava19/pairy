@@ -246,6 +246,9 @@ Returns (LINE-NR QUESTION CONTEXT) or nil."
 (defvar-local pairy--active-process nil
   "Active curl process, or nil.")
 
+(defvar-local pairy--hidden nil
+  "Non-nil when responses are hidden in this buffer.")
+
 (defun pairy--parse-sse-line (line)
   "Parse one SSE LINE from Gemini's stream.
 Returns delta text string, \"__ERROR__:msg\", or nil (ignore)."
@@ -397,6 +400,39 @@ Returns the process object."
     (message "pairy: cancelled")))
 
 ;;;###autoload
+(defun pairy-yank ()
+  "Copy the AI response for the pair: comment at point to the kill ring."
+  (interactive)
+  (pairy--ensure-state)
+  (let ((found (pairy--find-at-point)))
+    (unless found
+      (user-error "pairy: no pair: comment found at or above point"))
+    (let* ((line-nr (car found))
+           (text    (gethash line-nr pairy--responses)))
+      (if (or (null text) (string= text ""))
+          (user-error "pairy: no response yet for this comment")
+        (kill-new text)
+        (message "pairy: response copied (%d chars)" (length text))))))
+
+;;;###autoload
+(defun pairy-toggle ()
+  "Toggle visibility of all responses without discarding them."
+  (interactive)
+  (pairy--ensure-state)
+  (setq pairy--hidden (not pairy--hidden))
+  (if pairy--hidden
+      (progn
+        (remove-overlays (point-min) (point-max) 'pairy t)
+        (clrhash pairy--overlays)
+        (message "pairy: responses hidden"))
+    (progn
+      (maphash (lambda (line-nr text)
+                 (when (and text (not (string= text "")))
+                   (pairy--set-overlay line-nr text 'pairy-response-face)))
+               pairy--responses)
+      (message "pairy: responses shown"))))
+
+;;;###autoload
 (defun pairy-reload ()
   "Reload config from disk."
   (interactive)
@@ -430,6 +466,8 @@ Returns the process object."
     (define-key map (kbd "C-c a c") #'pairy-clear)
     (define-key map (kbd "C-c a x") #'pairy-clear-line)
     (define-key map (kbd "C-c a K") #'pairy-cancel)
+    (define-key map (kbd "C-c a y") #'pairy-yank)
+    (define-key map (kbd "C-c a t") #'pairy-toggle)
     map)
   "Keymap for `pairy-mode'.")
 

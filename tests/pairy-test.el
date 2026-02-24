@@ -274,4 +274,73 @@
     (should (string-match-p "generationConfig" body))
     (should (string-match-p "maxOutputTokens" body))))
 
+;; ─── pairy-yank ──────────────────────────────────────────────────────────────
+
+(ert-deftest pairy-yank/copies-response-to-kill-ring ()
+  "pairy-yank copies the finalized response text to the kill ring."
+  (with-temp-buffer
+    (insert "# pair: is this right?\n")
+    (goto-char (point-min))
+    (pairy--show-pending 1)
+    (pairy--finalize 1 "Yes, that's correct.")
+    (pairy-yank)
+    (should (equal (car kill-ring) "Yes, that's correct."))))
+
+(ert-deftest pairy-yank/no-pair-comment-signals-error ()
+  "pairy-yank signals user-error when no pair: comment is near point."
+  (with-temp-buffer
+    (insert "x = 1\ny = 2\n")
+    (goto-char (point-min))
+    (should-error (pairy-yank) :type 'user-error)))
+
+(ert-deftest pairy-yank/no-response-signals-error ()
+  "pairy-yank signals user-error when no response has been stored yet."
+  (with-temp-buffer
+    (insert "# pair: unanswered question\n")
+    (goto-char (point-min))
+    (pairy--ensure-state)
+    ;; No response stored — hash table is empty
+    (should-error (pairy-yank) :type 'user-error)))
+
+;; ─── pairy-toggle ────────────────────────────────────────────────────────────
+
+(ert-deftest pairy-toggle/hides-overlays-keeps-responses ()
+  "pairy-toggle hides overlays without discarding the response data."
+  (with-temp-buffer
+    (insert "# pair: question\n")
+    (pairy--show-pending 1)
+    (pairy--finalize 1 "The answer.")
+    (pairy-toggle)   ; hide
+    (should pairy--hidden)
+    (should (= (length (seq-filter (lambda (ov) (overlay-get ov 'pairy))
+                                   (overlays-in (point-min) (point-max))))
+               0))
+    ;; Response data must survive
+    (should (equal (gethash 1 pairy--responses) "The answer."))))
+
+(ert-deftest pairy-toggle/restores-overlays-when-shown ()
+  "pairy-toggle re-creates overlays when toggled back to visible."
+  (with-temp-buffer
+    (insert "# pair: question\n")
+    (pairy--show-pending 1)
+    (pairy--finalize 1 "The answer.")
+    (pairy-toggle)   ; hide
+    (pairy-toggle)   ; show
+    (should-not pairy--hidden)
+    (should (overlayp (gethash 1 pairy--overlays)))))
+
+(ert-deftest pairy-toggle/double-toggle-restores-count ()
+  "Toggling twice leaves the same number of overlays as before."
+  (with-temp-buffer
+    (insert "# pair: question\n")
+    (pairy--show-pending 1)
+    (pairy--finalize 1 "The answer.")
+    (let ((before (length (seq-filter (lambda (ov) (overlay-get ov 'pairy))
+                                      (overlays-in (point-min) (point-max))))))
+      (pairy-toggle)
+      (pairy-toggle)
+      (let ((after (length (seq-filter (lambda (ov) (overlay-get ov 'pairy))
+                                       (overlays-in (point-min) (point-max))))))
+        (should (= before after))))))
+
 ;;; pairy-test.el ends here

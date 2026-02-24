@@ -112,6 +112,8 @@ result = sorted(items, key=lambda x: x.score)  # pair: is this O(n log n)?
 | `<leader>aic` | normal | Clear all responses |
 | `<leader>aix` | normal | Clear response at cursor |
 | `<leader>aiK` | normal | Cancel in-flight request |
+| `<leader>aiy` | normal | Yank response at cursor to clipboard |
+| `<leader>ait` | normal | Toggle response visibility |
 
 ---
 
@@ -206,6 +208,8 @@ Run `M-x pairy-init` to create the config file if you haven't already.
 | `C-c a c` | Clear all responses |
 | `C-c a x` | Clear response at current line |
 | `C-c a K` | Cancel in-flight request |
+| `C-c a y` | Yank response at point to kill ring |
+| `C-c a t` | Toggle response visibility |
 
 ### Commands
 
@@ -215,6 +219,8 @@ Run `M-x pairy-init` to create the config file if you haven't already.
 | `M-x pairy-clear` | Clear all responses |
 | `M-x pairy-clear-line` | Clear response at current line |
 | `M-x pairy-cancel` | Cancel in-flight request |
+| `M-x pairy-yank` | Yank response at point to kill ring |
+| `M-x pairy-toggle` | Toggle response visibility |
 | `M-x pairy-reload` | Reload config from disk |
 | `M-x pairy-init` | Create config file from template |
 
