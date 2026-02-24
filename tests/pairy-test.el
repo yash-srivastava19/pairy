@@ -343,4 +343,30 @@
                                        (overlays-in (point-min) (point-max))))))
         (should (= before after))))))
 
+;; ─── pairy-inspect ───────────────────────────────────────────────────────────
+
+(ert-deftest pairy-inspect/no-api-key-signals-error ()
+  "pairy-inspect signals user-error when the API key is not configured."
+  (with-temp-buffer
+    (insert "hello world\n")
+    (goto-char (point-min))
+    (setq pairy--config (list :api-key "" :model "gemini-2.5-flash"
+                               :context-lines 20 :max-tokens 8192))
+    (should-error (pairy-inspect) :type 'user-error)))
+
+(ert-deftest pairy-inspect/no-symbol-at-point-signals-error ()
+  "pairy-inspect signals user-error when point is not on a symbol."
+  (with-temp-buffer
+    (insert "   \n")
+    (goto-char (point-min))
+    (setq pairy--config (list :api-key "test-key" :model "gemini-2.5-flash"
+                               :context-lines 20 :max-tokens 8192))
+    (should-error (pairy-inspect) :type 'user-error)))
+
+(ert-deftest pairy-build-body/accepts-custom-system-prompt ()
+  "pairy--build-body uses the custom system prompt when provided."
+  (let ((body (pairy--build-body "q?" "ctx" "custom system prompt")))
+    (should     (string-match-p "custom system prompt" body))
+    (should-not (string-match-p "pair programmer" body))))
+
 ;;; pairy-test.el ends here

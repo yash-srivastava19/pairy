@@ -114,6 +114,8 @@ result = sorted(items, key=lambda x: x.score)  # pair: is this O(n log n)?
 | `<leader>aiK` | normal | Cancel in-flight request |
 | `<leader>aiy` | normal | Yank response at cursor to clipboard |
 | `<leader>ait` | normal | Toggle response visibility |
+| `<leader>aii` | normal | Inspect word under cursor (hover AI explain) |
+| `<leader>aii` | visual | Inspect selected code (hover AI explain) |
 
 ---
 
@@ -130,6 +132,7 @@ result = sorted(items, key=lambda x: x.score)  # pair: is this O(n log n)?
 | `:PairyCancel` | Cancel in-flight request |
 | `:PairyReload` | Reload all pairy Lua modules from disk |
 | `:PairyInit` | Create config file from template |
+| `:PairyInspect` | Hover-style AI explanation of word under cursor |
 | `:PairyDoctor` | Run `:checkhealth pairy` |
 
 ---
@@ -210,6 +213,7 @@ Run `M-x pairy-init` to create the config file if you haven't already.
 | `C-c a K` | Cancel in-flight request |
 | `C-c a y` | Yank response at point to kill ring |
 | `C-c a t` | Toggle response visibility |
+| `C-c a i` | Inspect symbol at point (or region) with AI |
 
 ### Commands
 
@@ -221,6 +225,7 @@ Run `M-x pairy-init` to create the config file if you haven't already.
 | `M-x pairy-cancel` | Cancel in-flight request |
 | `M-x pairy-yank` | Yank response at point to kill ring |
 | `M-x pairy-toggle` | Toggle response visibility |
+| `M-x pairy-inspect` | Hover-style AI explanation of symbol at point (or region) |
 | `M-x pairy-reload` | Reload config from disk |
 | `M-x pairy-init` | Create config file from template |
 

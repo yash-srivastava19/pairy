@@ -53,7 +53,7 @@ local function build_request_body(pair_comment, cfg, opts)
     "Question: " .. pair_comment.question,
   }, "\n")
 
-  local system_text = SYSTEM_PROMPT
+  local system_text = opts.system_prompt or SYSTEM_PROMPT
   if opts.project_context then
     system_text = system_text
       .. "\n\nProject context (from PAIRY.md):\n"

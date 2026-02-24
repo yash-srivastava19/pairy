@@ -10,6 +10,118 @@ local M = {}
 local commands_registered = false
 local _send_all_token     = nil  -- sentinel to stop an in-progress send_all chain
 
+-- Per-session state for the inspect floating window
+local inspect_state = { buf = nil, win = nil, job = nil, acc = "" }
+
+local INSPECT_PROMPT = [[You are a concise code explanation assistant. The developer is hovering over a symbol or snippet and wants a quick explanation — like an enhanced hover.
+
+Constraints:
+- 2-4 sentences. Plain prose.
+- No markdown headers. No bullet lists.
+- Reference actual variable, function, and type names from the context.
+- If it is a function, explain what it does and what to watch out for.
+- If it is a variable or type, explain its role and typical values.
+- If it is a code snippet, explain what the block accomplishes.]]
+
+-- ─── Inspect float helpers ───────────────────────────────────────────────────
+
+-- Close the inspect floating window and cancel any active request.
+local function close_inspect()
+  if inspect_state.job then
+    inspect_state.job:kill(9)
+    inspect_state.job = nil
+  end
+  if inspect_state.win and vim.api.nvim_win_is_valid(inspect_state.win) then
+    vim.api.nvim_win_close(inspect_state.win, true)
+  end
+  inspect_state.buf = nil
+  inspect_state.win = nil
+  inspect_state.acc = ""
+end
+
+-- Open a small floating window near the cursor for inspect output.
+-- Closes any previous inspect float first.
+---@param caller_buf number  Buffer to watch for CursorMoved (auto-close trigger)
+---@return number, number    (ibuf, iwin)
+local function open_inspect_float(caller_buf)
+  close_inspect()
+
+  local width = math.min(70, math.floor(vim.o.columns * 0.65))
+  local ibuf  = vim.api.nvim_create_buf(false, true)
+  vim.bo[ibuf].filetype = "markdown"
+
+  local iwin = vim.api.nvim_open_win(ibuf, false, {
+    relative  = "cursor",
+    row       = 1,
+    col       = 0,
+    width     = width,
+    height    = 3,
+    style     = "minimal",
+    border    = "rounded",
+    title     = " ⬡ Inspect ",
+    title_pos = "center",
+  })
+  vim.wo[iwin].wrap      = true
+  vim.wo[iwin].linebreak = true
+
+  -- Auto-close when the user moves the cursor in the source buffer
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "BufLeave" }, {
+    buffer   = caller_buf,
+    once     = true,
+    callback = close_inspect,
+  })
+
+  -- q closes the float from inside it
+  vim.keymap.set("n", "q", close_inspect, {
+    buffer = ibuf, silent = true, nowait = true,
+  })
+
+  inspect_state.buf = ibuf
+  inspect_state.win = iwin
+  inspect_state.acc = ""
+  return ibuf, iwin
+end
+
+-- Append streaming text to the inspect float, resizing height to content.
+---@param ibuf number  The inspect scratch buffer
+---@param iwin number  The inspect window
+---@param text string  New text chunk
+local function inspect_append(ibuf, iwin, text)
+  if not vim.api.nvim_buf_is_valid(ibuf) then return end
+  inspect_state.acc = inspect_state.acc .. text
+  local lines = vim.split(inspect_state.acc, "\n", { plain = true })
+  vim.api.nvim_buf_set_lines(ibuf, 0, -1, false, lines)
+  if vim.api.nvim_win_is_valid(iwin) then
+    vim.api.nvim_win_set_height(iwin, math.max(3, math.min(15, #lines)))
+  end
+end
+
+-- Shared internal: launch an inspect request and stream into the float.
+---@param caller_buf   number
+---@param cfg          PairyConfig
+---@param pair_comment PairComment
+local function do_inspect(caller_buf, cfg, pair_comment)
+  local ibuf, iwin = open_inspect_float(caller_buf)
+  vim.api.nvim_buf_set_lines(ibuf, 0, -1, false, { "thinking..." })
+
+  local job = client.send(pair_comment, cfg, {
+    on_token = function(token)
+      if inspect_state.buf == ibuf then inspect_append(ibuf, iwin, token) end
+    end,
+    on_done  = function(_) end,
+    on_error = function(msg)
+      if inspect_state.buf == ibuf then
+        vim.api.nvim_buf_set_lines(ibuf, 0, -1, false, { "error: " .. msg:sub(1, 60) })
+        if vim.api.nvim_win_is_valid(iwin) then
+          vim.api.nvim_win_set_height(iwin, 3)
+        end
+      end
+    end,
+  }, { system_prompt = INSPECT_PROMPT })
+
+  if job then inspect_state.job = job end
+end
+
 -- ─── Setup ──────────────────────────────────────────────────────────────────
 
 function M.setup(opts)
@@ -32,6 +144,7 @@ function M.setup(opts)
     vim.api.nvim_create_user_command("PairyYank",      M.yank,         { desc = "Yank response at cursor to clipboard" })
     vim.api.nvim_create_user_command("PairyToggle",    M.toggle,       { desc = "Toggle visibility of all responses" })
     vim.api.nvim_create_user_command("PairySave",      M.save_session, { desc = "Save pairy session to a markdown file" })
+    vim.api.nvim_create_user_command("PairyInspect",   M.inspect,      { desc = "Hover-style AI explanation of word under cursor" })
     vim.api.nvim_create_user_command("PairyInit",      M.init,         { desc = "Create config file from template" })
     vim.api.nvim_create_user_command("PairyDoctor",    M.doctor,       { desc = "Run :checkhealth pairy" })
     vim.api.nvim_create_user_command("PairyReload", function()
@@ -326,6 +439,93 @@ function M.ask_selection()
 
     do_send(buf, pair_comment, cfg)
   end)
+end
+
+-- Hover-style AI explanation of the word under cursor in a floating window.
+-- No pair: comment needed — press <leader>aii on any symbol.
+function M.inspect()
+  local cfg = config.get()
+  if not cfg.api_key or cfg.api_key == "" then
+    util.notify_err("No API key. Run :PairyInit to set one up.")
+    return
+  end
+
+  local buf       = vim.api.nvim_get_current_buf()
+  local ok, word  = pcall(vim.fn.expand, "<cword>")
+  if not ok or not word or word == "" then
+    util.notify_warn("No word under cursor.")
+    return
+  end
+
+  local filetype = vim.bo[buf].filetype
+  local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+  if filename == "" then filename = "[unnamed]" end
+
+  local cur_line = vim.api.nvim_win_get_cursor(0)[1]   -- 1-indexed
+  local ctx      = cfg.context_lines or 20
+  local total    = vim.api.nvim_buf_line_count(buf)
+  local start_l  = math.max(1, cur_line - ctx)
+  local end_l    = math.min(total, cur_line + ctx)
+  local raw      = vim.api.nvim_buf_get_lines(buf, start_l - 1, end_l, false)
+  local numbered = {}
+  for i, line in ipairs(raw) do
+    local abs    = start_l + i - 1
+    local marker = abs == cur_line and ">" or " "
+    table.insert(numbered, string.format("%s %3d: %s", marker, abs, line))
+  end
+
+  local pair_comment = {
+    line_nr  = cur_line - 1,  -- 0-indexed
+    question = string.format("Explain `%s`.", word),
+    context  = string.format(
+      "File: %s (%s)\nLines %d-%d:\n\n```%s\n%s\n```",
+      filename, filetype ~= "" and filetype or "text",
+      start_l, end_l, filetype,
+      table.concat(numbered, "\n")
+    ),
+    filetype = filetype,
+    filename = filename,
+  }
+
+  do_inspect(buf, cfg, pair_comment)
+end
+
+-- Hover-style AI explanation of a visual selection in a floating window.
+function M.inspect_selection()
+  local cfg = config.get()
+  if not cfg.api_key or cfg.api_key == "" then
+    util.notify_err("No API key. Run :PairyInit to set one up.")
+    return
+  end
+
+  local buf        = vim.api.nvim_get_current_buf()
+  local start_line = vim.fn.line("'<") - 1
+  local end_line   = vim.fn.line("'>")
+  local selected   = util.buf_lines(buf, start_line, end_line)
+
+  if #selected == 0 then
+    util.notify_warn("No selection.")
+    return
+  end
+
+  local filetype = vim.bo[buf].filetype
+  local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+  if filename == "" then filename = "[unnamed]" end
+
+  local pair_comment = {
+    line_nr  = end_line - 1,  -- 0-indexed, anchor to last selected line
+    question = "Explain this code snippet.",
+    context  = string.format(
+      "File: %s (%s)\nSelected lines %d-%d:\n\n```%s\n%s\n```",
+      filename, filetype ~= "" and filetype or "text",
+      start_line + 1, end_line, filetype,
+      table.concat(selected, "\n")
+    ),
+    filetype = filetype,
+    filename = filename,
+  }
+
+  do_inspect(buf, cfg, pair_comment)
 end
 
 -- Save all answered pair: comments to a timestamped markdown file.

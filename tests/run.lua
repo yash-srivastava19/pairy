@@ -628,6 +628,60 @@ run("renderer.toggle_hidden: returns true when hiding, false when showing", func
   expect("returns false on show", shown  == false, "toggle_hidden should return false when showing")
 end)
 
+-- ─── init: inspect ───────────────────────────────────────────────────────────
+
+local init = require("pairy")
+
+run("init.inspect: error notification when API key is empty", function()
+  local orig      = vim.notify
+  local got_error = false
+  vim.notify = function(_, level)
+    if level == vim.log.levels.ERROR then got_error = true end
+  end
+
+  config.apply_overrides({ api_key = "" })
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "hello" })
+  vim.api.nvim_set_current_buf(buf)
+  init.inspect()
+
+  vim.notify = orig
+  config.apply_overrides({ api_key = "test-key" })
+  expect("error fired", got_error, "expected ERROR notification when API key empty")
+end)
+
+run("init.inspect_selection: error notification when API key is empty", function()
+  local orig      = vim.notify
+  local got_error = false
+  vim.notify = function(_, level)
+    if level == vim.log.levels.ERROR then got_error = true end
+  end
+
+  config.apply_overrides({ api_key = "" })
+  init.inspect_selection()
+
+  vim.notify = orig
+  config.apply_overrides({ api_key = "test-key" })
+  expect("error fired", got_error, "expected ERROR notification when API key empty")
+end)
+
+run("init.inspect: warn when no word under cursor", function()
+  local orig     = vim.notify
+  local got_warn = false
+  vim.notify = function(_, level)
+    if level == vim.log.levels.WARN then got_warn = true end
+  end
+
+  config.apply_overrides({ api_key = "test-key" })
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "   " })
+  vim.api.nvim_set_current_buf(buf)
+  init.inspect()
+
+  vim.notify = orig
+  expect("warn fired", got_warn, "expected WARN when no word under cursor")
+end)
+
 -- ─── Results ────────────────────────────────────────────────────────────────
 
 io.stdout:write(string.format("\n%d tests run.\n", total))

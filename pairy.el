@@ -287,23 +287,25 @@ Returns delta text string, \"__ERROR__:msg\", or nil (ignore)."
    (pairy--cfg :model)
    (pairy--cfg :api-key)))
 
-(defun pairy--build-body (question context)
-  "JSON request body for QUESTION with CONTEXT."
+(defun pairy--build-body (question context &optional system-prompt)
+  "JSON request body for QUESTION with CONTEXT.
+Optional SYSTEM-PROMPT overrides the default pair-programmer prompt."
   (json-encode
-   `((system_instruction . ((parts . [((text . ,pairy--system-prompt))])))
+   `((system_instruction . ((parts . [((text . ,(or system-prompt pairy--system-prompt)))])))
      (contents . [((role  . "user")
                    (parts . [((text . ,(concat context
                                                "\n\nQuestion: "
                                                question)))]))])
      (generationConfig . ((maxOutputTokens . ,(pairy--cfg :max-tokens)))))))
 
-(defun pairy--do-send (line-nr question context on-token on-done on-error)
+(defun pairy--do-send (line-nr question context on-token on-done on-error &optional system-prompt)
   "Launch curl subprocess for QUESTION+CONTEXT, streaming into callbacks.
+Optional SYSTEM-PROMPT overrides the default pair-programmer prompt.
 Returns the process object."
   (unless (executable-find "curl")
     (funcall on-error "curl not found in PATH")
     (cl-return-from pairy--do-send nil))
-  (let* ((body    (pairy--build-body question context))
+  (let* ((body    (pairy--build-body question context system-prompt))
          (tmp     (make-temp-file "pairy-" nil ".json" body))
          (buf     (current-buffer))
          (linebuf (list ""))          ; partial SSE line accumulator
@@ -432,6 +434,83 @@ Returns the process object."
                pairy--responses)
       (message "pairy: responses shown"))))
 
+(defconst pairy--inspect-prompt
+  "You are a concise code explanation assistant. The developer is hovering \
+over a symbol or snippet and wants a quick explanation — like an enhanced hover.
+
+Constraints:
+- 2-4 sentences. Plain prose.
+- No markdown headers. No bullet lists.
+- Reference actual variable, function, and type names from the context.
+- If it is a function, explain what it does and what to watch out for.
+- If it is a variable or type, explain its role and typical values.
+- If it is a code snippet, explain what the block accomplishes."
+  "System prompt used by `pairy-inspect'.")
+
+;;;###autoload
+(defun pairy-inspect ()
+  "Show a hover-style AI explanation of the symbol at point in a popup buffer.
+With an active region, explain the selected code instead."
+  (interactive)
+  (when (or (null (pairy--cfg :api-key))
+            (string= (pairy--cfg :api-key) ""))
+    (user-error "pairy: no API key — run M-x pairy-init"))
+  (let* ((use-region (use-region-p))
+         (question   (if use-region
+                         "Explain this code snippet."
+                       (let ((sym (thing-at-point 'symbol t)))
+                         (unless sym
+                           (user-error "pairy: no symbol at point"))
+                         (format "Explain `%s`." sym))))
+         (context    (if use-region
+                         (let ((sel (buffer-substring-no-properties
+                                     (region-beginning) (region-end)))
+                               (ft  (string-remove-suffix
+                                     "-mode" (symbol-name major-mode)))
+                               (fn  (if buffer-file-name
+                                        (file-name-nondirectory buffer-file-name)
+                                      "[unnamed]")))
+                           (format "File: %s (%s)\nSelected code:\n\n```%s\n%s\n```"
+                                   fn ft ft sel))
+                       (pairy--build-context (line-number-at-pos))))
+         (ibuf       (get-buffer-create "*pairy-inspect*"))
+         (src-buf    (current-buffer)))
+    ;; Prepare the popup buffer
+    (with-current-buffer ibuf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "thinking..."))
+      (special-mode)
+      (local-set-key (kbd "q") #'quit-window))
+    (display-buffer ibuf
+                    '((display-buffer-at-bottom)
+                      (window-height . 8)))
+    ;; Stream the response into the popup buffer
+    (when pairy--active-process
+      (delete-process pairy--active-process))
+    (setq pairy--active-process
+          (pairy--do-send
+           0 question context
+           (lambda (token)
+             (when (buffer-live-p ibuf)
+               (with-current-buffer ibuf
+                 (let ((inhibit-read-only t))
+                   (when (string= (buffer-string) "thinking...")
+                     (erase-buffer))
+                   (goto-char (point-max))
+                   (insert token)))))
+           (lambda (_text)
+             (when (buffer-live-p ibuf)
+               (with-current-buffer ibuf
+                 (goto-char (point-min)))))
+           (lambda (msg)
+             (when (buffer-live-p ibuf)
+               (with-current-buffer ibuf
+                 (let ((inhibit-read-only t))
+                   (erase-buffer)
+                   (insert (format "error: %s" msg))))))
+           pairy--inspect-prompt))))
+
 ;;;###autoload
 (defun pairy-reload ()
   "Reload config from disk."
@@ -468,6 +547,7 @@ Returns the process object."
     (define-key map (kbd "C-c a K") #'pairy-cancel)
     (define-key map (kbd "C-c a y") #'pairy-yank)
     (define-key map (kbd "C-c a t") #'pairy-toggle)
+    (define-key map (kbd "C-c a i") #'pairy-inspect)
     map)
   "Keymap for `pairy-mode'.")
 
