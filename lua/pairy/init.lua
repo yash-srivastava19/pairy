@@ -29,6 +29,8 @@ function M.setup(opts)
     vim.api.nvim_create_user_command("PairyClearLine", M.clear_line,   { desc = "Clear pairy response at cursor line" })
     vim.api.nvim_create_user_command("PairyAll",       M.send_all,     { desc = "Send all pair: comments in buffer" })
     vim.api.nvim_create_user_command("PairyCancel",    M.cancel,       { desc = "Cancel in-flight pairy request" })
+    vim.api.nvim_create_user_command("PairyYank",      M.yank,         { desc = "Yank response at cursor to clipboard" })
+    vim.api.nvim_create_user_command("PairyToggle",    M.toggle,       { desc = "Toggle visibility of all responses" })
     vim.api.nvim_create_user_command("PairySave",      M.save_session, { desc = "Save pairy session to a markdown file" })
     vim.api.nvim_create_user_command("PairyInit",      M.init,         { desc = "Create config file from template" })
     vim.api.nvim_create_user_command("PairyDoctor",    M.doctor,       { desc = "Run :checkhealth pairy" })
@@ -249,6 +251,32 @@ end
 function M.cancel()
   _send_all_token = nil
   renderer.cancel_active(vim.api.nvim_get_current_buf())
+end
+
+-- Copy the AI response for the pair: comment at/near cursor to the clipboard.
+function M.yank()
+  local buf = vim.api.nvim_get_current_buf()
+  local cfg = config.get()
+  local pair_comment = detector.find_at_cursor(buf, cfg)
+  if not pair_comment then
+    util.notify_warn("No 'pair:' comment found at or above cursor.")
+    return
+  end
+  local text = renderer.get_responses(buf)[pair_comment.line_nr]
+  if not text or text == "" then
+    util.notify_warn("No response yet for this comment.")
+    return
+  end
+  vim.fn.setreg("+", text)  -- system clipboard
+  vim.fn.setreg('"', text)  -- unnamed register
+  util.notify("Response yanked.")
+end
+
+-- Toggle visibility of all responses in the buffer without discarding them.
+function M.toggle()
+  local buf    = vim.api.nvim_get_current_buf()
+  local hidden = renderer.toggle_hidden(buf)
+  util.notify(hidden and "Responses hidden." or "Responses shown.")
 end
 
 -- Ask a question about a visual selection without writing a pair: comment.

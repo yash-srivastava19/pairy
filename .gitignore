@@ -6,7 +6,10 @@ config.json
 *_key*
 
 # Claude Code workspace settings (developer-local, not project config)
-.claude/
+# Use .claude/* (not .claude/) so the !skills exception can work
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 
 # Neovim runtime logs
 .nvimlog

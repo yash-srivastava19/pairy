@@ -271,6 +271,40 @@ function M.clear_line(buf, line_nr)
   if queues[buf] then queues[buf][line_nr] = nil end
 end
 
+-- Re-draw one line from saved response data (used by toggle_hidden).
+local function restore_line(buf, line_nr)
+  local st   = get_state(buf)
+  local text = st.responses[line_nr]
+  if not text or text == "" then return end
+  local indent, cont_pad, wrap_w = layout(buf, line_nr)
+  local virt = text_to_virt_lines(text, "PairyResponse", indent, cont_pad, wrap_w)
+  local id   = vim.api.nvim_buf_set_extmark(buf, ns, line_nr, 0, {
+    virt_lines       = virt,
+    virt_lines_above = false,
+  })
+  st.extmarks[line_nr] = id
+end
+
+-- Toggle visibility of all responses in the buffer without discarding them.
+-- Hiding clears extmarks; showing re-creates them from saved response text.
+---@param buf number Buffer handle
+---@return boolean  true = now hidden, false = now visible
+function M.toggle_hidden(buf)
+  local st = get_state(buf)
+  st.hidden = not (st.hidden or false)
+
+  if st.hidden then
+    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+    st.extmarks = {}
+  else
+    for line_nr in pairs(st.responses) do
+      restore_line(buf, line_nr)
+    end
+  end
+
+  return st.hidden
+end
+
 function M.clear_all(buf)
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   state[buf]  = nil
