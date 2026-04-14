@@ -2,7 +2,16 @@
 
 [![CI](https://github.com/yash-srivastava19/pairy/actions/workflows/ci.yml/badge.svg)](https://github.com/yash-srivastava19/pairy/actions/workflows/ci.yml)
 
-AI pair programming inside Neovim and Emacs. Write a `pair:` comment, hit a keymap, get a response as inline virtual text — never written to the file.
+AI pair programming inside Neovim and Emacs. Write a `pair:` comment, hit a keymap, get a response as inline virtual text, never written to the file.
+
+## What it is
+Pairy is an editor plugin for Neovim and Emacs that turns inline comments and selections into AI pair-programming prompts, with responses shown directly in the editor as virtual text.
+
+## Why it matters
+Most coding assistants interrupt your flow, push you into a separate chat UI, or add unnecessary proxy layers. Pairy keeps the interaction inside the editor, close to the code, and focused on actual reasoning rather than autocomplete noise.
+
+## Current status
+Active editor tooling project with working Neovim and Emacs support, session features, and inline AI feedback.
 
 ```ruby
 def insert(node, val)
