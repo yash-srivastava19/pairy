@@ -1,0 +1,8 @@
+<idea-plugin>
+    <id>dev.yashsrivastava19.pairy</id>
+    <name>Pairy</name>
+    <vendor>yash-srivastava19</vendor>
+    <description>AI pair programming inside the editor. Write a pair: comment, get a response as inline text, never written to the file.</description>
+
+    <depends>com.intellij.modules.platform</depends>
+</idea-plugin>
