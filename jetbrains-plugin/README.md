@@ -27,17 +27,18 @@ Schema (all fields optional, sensible defaults applied):
 
 ## Keybindings
 
-All actions live under the `Ctrl+Alt+P` chord (press `Ctrl+Alt+P`, release,
-then press the second key), and are also available from **Tools → Pairy**.
+Each action is a single shortcut (no chord/leader key) and is also available
+from **Tools → Pairy**. All six are verified against PyCharm's default keymap
+(`$default.xml`) to not collide with any built-in binding.
 
-| Action     | Chord            | Description                                          |
-|------------|------------------|-------------------------------------------------------|
-| Send       | `Ctrl+Alt+P` `S` | Send the `pair:` comment at cursor, or ask about the selection |
-| Retry      | `Ctrl+Alt+P` `R` | Re-send the `pair:` comment at cursor                |
-| Send All   | `Ctrl+Alt+P` `A` | Send every `pair:` comment in the file               |
-| Clear      | `Ctrl+Alt+P` `X` | Clear the response at cursor                         |
-| Clear All  | `Ctrl+Alt+P` `C` | Clear all responses in the file                      |
-| Cancel     | `Ctrl+Alt+P` `K` | Cancel the in-flight request at cursor               |
+| Action     | Shortcut       | Description                                          |
+|------------|----------------|-------------------------------------------------------|
+| Send       | `Alt+Shift+S`  | Send the `pair:` comment at cursor, or ask about the selection |
+| Retry      | `Alt+Shift+R`  | Re-send the `pair:` comment at cursor                |
+| Send All   | `Alt+Shift+L`  | Send every `pair:` comment in the file               |
+| Clear      | `Alt+Shift+X`  | Clear the response at cursor                         |
+| Clear All  | `Alt+Shift+C`  | Clear all responses in the file                      |
+| Cancel     | `Alt+Shift+K`  | Cancel the in-flight request at cursor               |
 
 ## Build & Install
 
