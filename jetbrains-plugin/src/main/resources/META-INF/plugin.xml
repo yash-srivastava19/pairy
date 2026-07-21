@@ -5,4 +5,39 @@
     <description>AI pair programming inside the editor. Write a pair: comment, get a response as inline text, never written to the file.</description>
 
     <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <notificationGroup id="Pairy" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <group id="Pairy.Actions" text="Pairy" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+
+            <action id="Pairy.Send" class="pairy.PairySendAction" text="Send"
+                    description="Send the pair: comment at cursor, or ask about the selection">
+                <keyboard-shortcut first-keystroke="ctrl alt P" second-keystroke="S" keymap="$default"/>
+            </action>
+            <action id="Pairy.Retry" class="pairy.PairyRetryAction" text="Retry"
+                    description="Re-send the pair: comment at cursor">
+                <keyboard-shortcut first-keystroke="ctrl alt P" second-keystroke="R" keymap="$default"/>
+            </action>
+            <action id="Pairy.SendAll" class="pairy.PairySendAllAction" text="Send All"
+                    description="Send every pair: comment in the file">
+                <keyboard-shortcut first-keystroke="ctrl alt P" second-keystroke="A" keymap="$default"/>
+            </action>
+            <action id="Pairy.Clear" class="pairy.PairyClearAction" text="Clear"
+                    description="Clear the response at cursor">
+                <keyboard-shortcut first-keystroke="ctrl alt P" second-keystroke="X" keymap="$default"/>
+            </action>
+            <action id="Pairy.ClearAll" class="pairy.PairyClearAllAction" text="Clear All"
+                    description="Clear all responses in the file">
+                <keyboard-shortcut first-keystroke="ctrl alt P" second-keystroke="C" keymap="$default"/>
+            </action>
+            <action id="Pairy.Cancel" class="pairy.PairyCancelAction" text="Cancel"
+                    description="Cancel the in-flight request at cursor">
+                <keyboard-shortcut first-keystroke="ctrl alt P" second-keystroke="K" keymap="$default"/>
+            </action>
+        </group>
+    </actions>
 </idea-plugin>
