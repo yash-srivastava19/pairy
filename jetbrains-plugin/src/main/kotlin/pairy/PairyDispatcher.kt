@@ -27,7 +27,7 @@ object PairyDispatcher {
         inFlight[key] = future
 
         future.whenComplete { result, throwable ->
-            inFlight.remove(key)
+            inFlight.remove(key, future)
             ApplicationManager.getApplication().invokeLater {
                 if (throwable != null) {
                     if (throwable !is CancellationException) {
@@ -49,5 +49,10 @@ object PairyDispatcher {
 
     fun cancel(editor: Editor, lineIndex: Int) {
         inFlight.remove(editor to lineIndex)?.cancel(true)
+    }
+
+    fun cancelAll(editor: Editor) {
+        val keysForEditor = inFlight.keys.filter { it.first == editor }
+        keysForEditor.forEach { key -> inFlight.remove(key)?.cancel(true) }
     }
 }

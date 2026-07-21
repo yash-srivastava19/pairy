@@ -10,6 +10,7 @@ class PairyClearAllAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
+        PairyDispatcher.cancelAll(editor)
         PairyRenderer.clearAll(editor)
     }
 }
