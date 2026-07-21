@@ -16,13 +16,19 @@ object PairyDetector {
         Regex("^.*?-{2,}\\s*pair:\\s*(.+)$"),   // Lua-style: --
         Regex("^.*?#+\\s*pair:\\s*(.+)$"),      // Ruby/Python/shell: #
         Regex("^.*?/{2,}\\s*pair:\\s*(.+)$"),   // JS/TS/Rust/Go: //
-        Regex("^.*?/\\*+\\s*pair:\\s*(.+?)\\s*\\*/$")    // C block: /*
+        Regex("^.*?/\\*+\\s*pair:\\s*(.+)$")    // C block: /*
     )
 
     fun extractQuestion(lineText: String): String? {
-        for (pattern in PAIR_PATTERNS) {
+        for ((index, pattern) in PAIR_PATTERNS.withIndex()) {
             val match = pattern.find(lineText)
-            if (match != null) return match.groupValues[1].trim()
+            if (match != null) {
+                var question = match.groupValues[1].trim()
+                if (index == 3) {
+                    question = question.removeSuffix("*/").trim()
+                }
+                return question
+            }
         }
         return null
     }

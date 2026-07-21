@@ -16,6 +16,11 @@ class PairyDetectorTest {
     }
 
     @Test
+    fun `c block comment without a same-line closing delimiter still matches`() {
+        assertEquals("unfinished thought", PairyDetector.extractQuestion("/* pair: unfinished thought"))
+    }
+
+    @Test
     fun `inline comment with code before the marker`() {
         val question = PairyDetector.extractQuestion(
             "result = sorted(items, key=lambda x: x.score)  # pair: is this O(n log n)?"
