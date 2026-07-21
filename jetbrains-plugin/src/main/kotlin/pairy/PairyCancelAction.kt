@@ -10,7 +10,9 @@ class PairyCancelAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
-        val line = editor.caretModel.logicalPosition.line
+        val config = PairyConfig.load()
+        val line = PairyDetector.findAtCursor(editor, config.contextLines)?.lineIndex
+            ?: editor.caretModel.logicalPosition.line
         PairyDispatcher.cancel(editor, line)
         PairyRenderer.clearLine(editor, line)
     }

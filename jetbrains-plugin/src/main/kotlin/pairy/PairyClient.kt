@@ -106,11 +106,15 @@ object PairyClient {
         val request = HttpRequest.newBuilder()
             .uri(URI.create(buildUrl(model, apiKey)))
             .header("content-type", "application/json")
+            .timeout(Duration.ofSeconds(60))
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenApply { response -> parseResponse(response.body()) }
-            .exceptionally { throwable -> PairyResult.Failure("Network error: ${throwable.message}") }
+            .exceptionally { throwable ->
+                val cause = throwable.cause ?: throwable
+                PairyResult.Failure("Network error (${cause.javaClass.simpleName})")
+            }
     }
 }
