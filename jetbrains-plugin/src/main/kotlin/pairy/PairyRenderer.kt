@@ -42,8 +42,11 @@ class PairyBlockRenderer(private var text: String) : EditorCustomElementRenderer
 
 object PairyRenderer {
     private val inlaysByEditor = mutableMapOf<Editor, MutableMap<Int, Inlay<PairyBlockRenderer>>>()
+    private val responsesByEditor = mutableMapOf<Editor, MutableMap<Int, String>>()
+    private val hiddenByEditor = mutableMapOf<Editor, Boolean>()
 
     private fun inlaysFor(editor: Editor) = inlaysByEditor.getOrPut(editor) { mutableMapOf() }
+    private fun responsesFor(editor: Editor) = responsesByEditor.getOrPut(editor) { mutableMapOf() }
 
     private fun indentOf(editor: Editor, lineIndex: Int): String {
         val document = editor.document
@@ -51,9 +54,18 @@ object PairyRenderer {
         return line.takeWhile { it == ' ' || it == '\t' }
     }
 
+    private fun createInlay(editor: Editor, lineIndex: Int, indentedText: String) {
+        val offset = editor.document.getLineEndOffset(lineIndex)
+        val inlay = editor.inlayModel.addBlockElement(offset, true, false, 0, PairyBlockRenderer(indentedText)) ?: return
+        inlaysFor(editor)[lineIndex] = inlay
+    }
+
     private fun upsert(editor: Editor, lineIndex: Int, text: String) {
         val indent = indentOf(editor, lineIndex)
         val indentedText = text.lineSequence().joinToString("\n") { indent + it }
+        responsesFor(editor)[lineIndex] = indentedText
+
+        if (hiddenByEditor[editor] == true) return
 
         val existing = inlaysFor(editor)[lineIndex]
         if (existing != null && existing.isValid) {
@@ -61,9 +73,7 @@ object PairyRenderer {
             existing.update()
             return
         }
-        val offset = editor.document.getLineEndOffset(lineIndex)
-        val inlay = editor.inlayModel.addBlockElement(offset, true, false, 0, PairyBlockRenderer(indentedText)) ?: return
-        inlaysFor(editor)[lineIndex] = inlay
+        createInlay(editor, lineIndex, indentedText)
     }
 
     fun showPending(editor: Editor, lineIndex: Int) = upsert(editor, lineIndex, PAIRY_PENDING_TEXT)
@@ -74,10 +84,26 @@ object PairyRenderer {
 
     fun clearLine(editor: Editor, lineIndex: Int) {
         inlaysFor(editor).remove(lineIndex)?.dispose()
+        responsesFor(editor).remove(lineIndex)
     }
 
     fun clearAll(editor: Editor) {
         inlaysFor(editor).values.forEach { it.dispose() }
         inlaysFor(editor).clear()
+        responsesFor(editor).clear()
+    }
+
+    /** Hides all rendered responses in [editor] without discarding them, or restores them if
+     * already hidden. Returns true if responses are now hidden, false if now shown. */
+    fun toggleHidden(editor: Editor): Boolean {
+        val nowHidden = hiddenByEditor[editor] != true
+        hiddenByEditor[editor] = nowHidden
+        if (nowHidden) {
+            inlaysFor(editor).values.forEach { it.dispose() }
+            inlaysFor(editor).clear()
+        } else {
+            responsesFor(editor).forEach { (lineIndex, text) -> createInlay(editor, lineIndex, text) }
+        }
+        return nowHidden
     }
 }

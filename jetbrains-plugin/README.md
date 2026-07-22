@@ -43,6 +43,7 @@ Clear Context actions on `S`/`L`/`X`; this table reflects the corrected set.
 | Clear      | `Alt+Shift+H`  | Clear the response at cursor                         |
 | Clear All  | `Alt+Shift+C`  | Clear all responses in the file                      |
 | Cancel     | `Alt+Shift+K`  | Cancel the in-flight request at cursor               |
+| Toggle     | `Alt+Shift+V`  | Hide/show all responses in the file (without discarding them) |
 
 ## Build & Install
 
@@ -76,5 +77,6 @@ feature:
 - **Non-streaming** — the full response arrives at once; there is no live
   token-by-token streaming as it generates.
 - **Core loop only** — no conversation threading, no `PAIRY.md` project
-  context file, no session save/restore, and no hover-to-inspect. These
-  exist in the Neovim/Emacs versions but were not ported here.
+  context file, no session save/restore, no hover-to-inspect, and no
+  yank-to-clipboard. These exist in the Neovim/Emacs versions but were not
+  ported here. (Toggle visibility *was* ported — see Keybindings above.)

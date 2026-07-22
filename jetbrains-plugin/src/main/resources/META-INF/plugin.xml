@@ -38,6 +38,10 @@
                     description="Cancel the in-flight request at cursor">
                 <keyboard-shortcut first-keystroke="alt shift K" keymap="$default"/>
             </action>
+            <action id="Pairy.Toggle" class="pairy.PairyToggleAction" text="Toggle"
+                    description="Toggle visibility of all responses in the file">
+                <keyboard-shortcut first-keystroke="alt shift V" keymap="$default"/>
+            </action>
         </group>
     </actions>
 </idea-plugin>
