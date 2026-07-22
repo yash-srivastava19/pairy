@@ -16,7 +16,7 @@
 
             <action id="Pairy.Send" class="pairy.PairySendAction" text="Send"
                     description="Send the pair: comment at cursor, or ask about the selection">
-                <keyboard-shortcut first-keystroke="alt shift S" keymap="$default"/>
+                <keyboard-shortcut first-keystroke="alt shift O" keymap="$default"/>
             </action>
             <action id="Pairy.Retry" class="pairy.PairyRetryAction" text="Retry"
                     description="Re-send the pair: comment at cursor">
@@ -24,11 +24,11 @@
             </action>
             <action id="Pairy.SendAll" class="pairy.PairySendAllAction" text="Send All"
                     description="Send every pair: comment in the file">
-                <keyboard-shortcut first-keystroke="alt shift L" keymap="$default"/>
+                <keyboard-shortcut first-keystroke="alt shift Y" keymap="$default"/>
             </action>
             <action id="Pairy.Clear" class="pairy.PairyClearAction" text="Clear"
                     description="Clear the response at cursor">
-                <keyboard-shortcut first-keystroke="alt shift X" keymap="$default"/>
+                <keyboard-shortcut first-keystroke="alt shift H" keymap="$default"/>
             </action>
             <action id="Pairy.ClearAll" class="pairy.PairyClearAllAction" text="Clear All"
                     description="Clear all responses in the file">

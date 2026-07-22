@@ -28,15 +28,19 @@ Schema (all fields optional, sensible defaults applied):
 ## Keybindings
 
 Each action is a single shortcut (no chord/leader key) and is also available
-from **Tools → Pairy**. All six are verified against PyCharm's default keymap
-(`$default.xml`) to not collide with any built-in binding.
+from **Tools → Pairy**. All six are verified conflict-free against both
+PyCharm's core default keymap (`$default.xml`) AND every bundled plugin's own
+shortcuts (checked by scanning every `plugin.xml` under
+`pycharm-2026.1.4/plugins/`) — the first pass only checked the core keymap and
+missed a real collision with the bundled Task Management plugin's Save/Load/
+Clear Context actions on `S`/`L`/`X`; this table reflects the corrected set.
 
 | Action     | Shortcut       | Description                                          |
 |------------|----------------|-------------------------------------------------------|
-| Send       | `Alt+Shift+S`  | Send the `pair:` comment at cursor, or ask about the selection |
+| Send       | `Alt+Shift+O`  | Send the `pair:` comment at cursor, or ask about the selection |
 | Retry      | `Alt+Shift+R`  | Re-send the `pair:` comment at cursor                |
-| Send All   | `Alt+Shift+L`  | Send every `pair:` comment in the file               |
-| Clear      | `Alt+Shift+X`  | Clear the response at cursor                         |
+| Send All   | `Alt+Shift+Y`  | Send every `pair:` comment in the file               |
+| Clear      | `Alt+Shift+H`  | Clear the response at cursor                         |
 | Clear All  | `Alt+Shift+C`  | Clear all responses in the file                      |
 | Cancel     | `Alt+Shift+K`  | Cancel the in-flight request at cursor               |
 
