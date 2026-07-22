@@ -5,6 +5,7 @@ import com.intellij.openapi.editor.EditorCustomElementRenderer
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.util.TextRange
 import java.awt.Graphics
 import java.awt.Rectangle
 
@@ -44,15 +45,24 @@ object PairyRenderer {
 
     private fun inlaysFor(editor: Editor) = inlaysByEditor.getOrPut(editor) { mutableMapOf() }
 
+    private fun indentOf(editor: Editor, lineIndex: Int): String {
+        val document = editor.document
+        val line = document.getText(TextRange(document.getLineStartOffset(lineIndex), document.getLineEndOffset(lineIndex)))
+        return line.takeWhile { it == ' ' || it == '\t' }
+    }
+
     private fun upsert(editor: Editor, lineIndex: Int, text: String) {
+        val indent = indentOf(editor, lineIndex)
+        val indentedText = text.lineSequence().joinToString("\n") { indent + it }
+
         val existing = inlaysFor(editor)[lineIndex]
         if (existing != null && existing.isValid) {
-            existing.renderer.updateText(text)
+            existing.renderer.updateText(indentedText)
             existing.update()
             return
         }
         val offset = editor.document.getLineEndOffset(lineIndex)
-        val inlay = editor.inlayModel.addBlockElement(offset, true, false, 0, PairyBlockRenderer(text)) ?: return
+        val inlay = editor.inlayModel.addBlockElement(offset, true, false, 0, PairyBlockRenderer(indentedText)) ?: return
         inlaysFor(editor)[lineIndex] = inlay
     }
 
